@@ -1,0 +1,35 @@
+# Built outputs
+build/
+app/build/
+*.apk
+*.ap_
+*.aab
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Local config (contains signing passwords)
+local.properties
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Kotlin
+.kotlin/
+
+# Signing (DO NOT commit keystore)
+signing/*.keystore
+signing/*.jks
+
+# Logs
+*.log
