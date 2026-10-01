@@ -82,11 +82,11 @@
 ### 1. 克隆项目
 
 ```bash
-git clone '<repo-url>' EnglishWordsByJR
-cd EnglishWordsByJR
+git clone https://github.com/jrcloud-next/EnglishWords
+cd EnglishWords
 ```
 
-将 `<repo-url>` 替换为实际仓库地址。以下命令均在包含 `settings.gradle.kts` 的项目根目录执行，并将示例中的工具路径替换为本机实际路径。
+克隆后得到的目录名为 `EnglishWords`。以下命令均在包含 `settings.gradle.kts` 的项目根目录执行，并将示例中的工具路径替换为本机实际路径。
 
 ### 2. 配置 Android SDK
 
