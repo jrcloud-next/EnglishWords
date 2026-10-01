@@ -100,16 +100,31 @@ export JAVA_HOME="/path/to/jdk-17"
 
 ### 4. 配置 Release 签名
 
-Release 编译需要将密钥库放在 `signing/release.keystore`，其中必须包含别名为 `byjr` 的签名密钥。在已有 `local.properties` 中追加对应密码，保留前面的 `sdk.dir`：
+Release 包必须签名。本项目的签名配置固定为：密钥库放在 `signing/release.keystore`、别名 `byjr`、密码从 `local.properties` 读取。
 
-```properties
-storePassword=你的密钥库密码
-keyPassword=你的密钥密码
+**自己编译 Release 包**时，先生成密钥库（仓库里没有 `signing/` 目录，需要先创建）：
+
+```bash
+mkdir -p signing
+"$JAVA_HOME/bin/keytool" -genkeypair -v \
+  -keystore signing/release.keystore -alias byjr \
+  -keyalg RSA -keysize 2048 -validity 10950 \
+  -storepass 你的密码 -keypass 你的密码 \
+  -dname "CN=YourName, C=CN"
 ```
 
-`local.properties` 和 `signing/` 下的密钥库已在 `.gitignore` 中排除，不要提交密码或密钥库。
+然后在 `local.properties` 中追加两行，保留已有的 `sdk.dir`：
 
-更新已有应用时需沿用原签名密钥；这些签名材料不随仓库提供。
+```properties
+storePassword=你的密码
+keyPassword=你的密码
+```
+
+密钥库是 PKCS12 格式，库密码与密钥密码实际是同一个值，两行填一样的即可。
+
+**要覆盖安装已发布的应用**：必须改用该应用原有的密钥库与密码，否则签名不一致会安装失败。原签名材料不在本仓库中。
+
+`local.properties` 与 `signing/*.keystore` 都已在 `.gitignore` 中排除，不要提交密码或密钥库。
 
 ### 5. 编译 Release APK
 
