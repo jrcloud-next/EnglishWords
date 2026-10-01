@@ -1,6 +1,7 @@
 package com.jr.englishword.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.AppSettings
 import com.jr.englishword.net.DeepSeekApi
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.components.SectionCardHeader
 import kotlinx.coroutines.launch
 
 @Composable
@@ -70,7 +71,12 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
+    // 整页统一为 surface（浅色下即纯白），避免顶部栏与页面底色不一致
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+    ) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -91,21 +97,17 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
         ) {
             // AI 扩展功能
             Card(
-                shape = RoundedCornerShape(22.dp),
+                shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(Modifier.padding(18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Psychology,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("AI 扩展功能", fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    SectionCardHeader(
+                        icon = Icons.Rounded.Psychology,
+                        title = "AI 扩展功能",
+                        tint = MaterialTheme.colorScheme.primary
+                    ) {
                         Switch(
                             checked = settings.apiEnabled,
                             onCheckedChange = { checked ->
@@ -130,7 +132,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         placeholder = { Text("例如：https://api.deepseek.com", fontSize = 12.sp) },
-                        shape = RoundedCornerShape(14.dp)
+                        shape = MaterialTheme.shapes.medium
                     )
                     Spacer(Modifier.height(12.dp))
 
@@ -142,7 +144,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         placeholder = { Text("例如：deepseek-flash", fontSize = 12.sp) },
-                        shape = RoundedCornerShape(14.dp)
+                        shape = MaterialTheme.shapes.medium
                     )
                     Spacer(Modifier.height(12.dp))
 
@@ -167,7 +169,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                                 )
                             }
                         },
-                        shape = RoundedCornerShape(14.dp)
+                        shape = MaterialTheme.shapes.medium
                     )
                     Spacer(Modifier.height(14.dp))
 
@@ -185,7 +187,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                         },
                         enabled = settings.apiEnabled,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp)
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Text("保存配置")
                     }
@@ -211,7 +213,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                             },
                             enabled = settings.apiEnabled && !testing,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
+                            shape = MaterialTheme.shapes.medium
                         ) {
                             if (testing) {
                                 CircularProgressIndicator(
@@ -237,7 +239,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                             },
                             enabled = settings.apiEnabled,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
+                            shape = MaterialTheme.shapes.medium
                         ) {
                             Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
@@ -260,22 +262,17 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
 
             // 学习设置
             Card(
-                shape = RoundedCornerShape(22.dp),
+                shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(Modifier.padding(18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.School,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("学习设置", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
+                    SectionCardHeader(
+                        icon = Icons.Rounded.School,
+                        title = "学习设置",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "每轮练习抽取的题目数量，错题重练同样按此数量出题。",
@@ -303,25 +300,20 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
 
             // 关于
             Card(
-                shape = RoundedCornerShape(22.dp),
+                shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(Modifier.padding(18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("关于", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
+                    SectionCardHeader(
+                        icon = Icons.Rounded.Info,
+                        title = "关于",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "英语单词·By JR v1.0\n支持 TXT / DOCX 词表导入，提供英译中、中译英、默写中文、拼写英文四种记忆模式，内置错题本，并可通过 AI 接口生成选择题干扰项与详细释义。",
+                        "英语单词·By JR v1.1\n支持 TXT / DOCX 词表导入，提供英译中、中译英、默写中文、拼写英文四种记忆模式，内置错题本，并可通过 AI 接口生成选择题干扰项与详细释义。",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp

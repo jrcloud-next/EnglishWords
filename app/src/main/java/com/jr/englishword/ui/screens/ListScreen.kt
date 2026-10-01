@@ -2,11 +2,13 @@ package com.jr.englishword.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,10 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -61,6 +63,10 @@ import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.WordEntry
 import com.jr.englishword.net.DeepSeekApi
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.components.GradientIconChip
+import com.jr.englishword.ui.components.pressableScale
+import com.jr.englishword.ui.components.staggeredAppear
+import com.jr.englishword.ui.components.InfoPill
 import kotlinx.coroutines.launch
 
 @Composable
@@ -78,6 +84,8 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
         val current = vm.words.value
         val idx = current.indexOfFirst { it.id == w.id }
         if (idx < 0) return
+        // 先记下会被联动删除的错题记录，撤销时按原值还原
+        val removedWrong = vm.wrongRecordOf(w.id)
         vm.updateWords { list -> list.filterNot { it.id == w.id } }
         vm.removeWrong(w.id)
         scope.launch {
@@ -90,6 +98,7 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                 vm.updateWords { list ->
                     list.toMutableList().apply { add(idx.coerceAtMost(size), w) }
                 }
+                removedWrong?.let { vm.restoreWrong(it) }
             }
         }
     }
@@ -102,7 +111,9 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        // 外层 Scaffold 已处理窗口 insets，内层不再重复添加
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Row(
@@ -116,17 +127,11 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                 }
                 Text("单词本", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        "${words.size} 词",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+                InfoPill(
+                    text = "${words.size} 词",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
                 Spacer(Modifier.weight(1f))
                 if (words.isNotEmpty()) {
                     IconButton(onClick = { showClearDialog = true }) {
@@ -155,13 +160,21 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(24.dp)
+                shape = MaterialTheme.shapes.large
             )
             Spacer(Modifier.height(10.dp))
 
             if (words.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        GradientIconChip(
+                            icon = Icons.Rounded.MenuBook,
+                            tint = MaterialTheme.colorScheme.primary,
+                            size = 60.dp,
+                            iconSize = 30.dp,
+                            cornerRadius = 20.dp
+                        )
+                        Spacer(Modifier.height(14.dp))
                         Text("词库为空", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -176,7 +189,7 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                 val groupedWords = filtered
                     .sortedBy { it.word.lowercase() }
                     .groupBy { it.word.firstOrNull()?.uppercase() ?: "#" }
-                
+
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 4.dp),
@@ -185,18 +198,23 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                     groupedWords.forEach { (letter, wordsInGroup) ->
                         // 首字母标签
                         item(key = "header_$letter") {
-                            Text(
-                                text = letter,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
+                            Column(Modifier.padding(top = 10.dp, bottom = 4.dp)) {
+                                InfoPill(
+                                    text = letter,
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
                         }
                         // 该字母下的单词
-                        items(wordsInGroup, key = { it.id }) { w ->
+                        itemsIndexed(wordsInGroup, key = { _, w -> w.id }) { i, w ->
                             WordRow(
                                 word = w,
+                                index = i,
                                 onDelete = { deleteWord(w) },
                                 onClick = { detailWord = w }
                             )
@@ -237,13 +255,24 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
 }
 
 @Composable
-private fun WordRow(word: WordEntry, onDelete: () -> Unit, onClick: () -> Unit) {
+private fun WordRow(
+    word: WordEntry,
+    index: Int,
+    onDelete: () -> Unit,
+    onClick: () -> Unit
+) {
+    val source = remember { MutableInteractionSource() }
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        interactionSource = source,
+        modifier = Modifier
+            .fillMaxWidth()
+            .staggeredAppear(index, stepMillis = 30)
+            .pressableScale(source),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             Modifier
@@ -350,7 +379,7 @@ private fun WordDetailDialog(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp)
+                            shape = MaterialTheme.shapes.medium
                         ) {
                             Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
@@ -386,7 +415,7 @@ private fun WordDetailDialog(
                         if (info.example.isNotBlank()) {
                             Spacer(Modifier.height(12.dp))
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
+                                shape = MaterialTheme.shapes.medium,
                                 color = MaterialTheme.colorScheme.surfaceVariant
                             ) {
                                 Column(Modifier.padding(12.dp)) {

@@ -17,6 +17,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val settings: StateFlow<AppSettings> = repo.settings
     val wrong: StateFlow<List<WrongRecord>> = repo.wrong
 
+    /** 词库/设置/错题本读取失败提示；null 表示正常。 */
+    val loadError: StateFlow<String?> = repo.loadError
+
+    /** 落盘失败提示；null 表示正常。 */
+    val saveError: StateFlow<String?> = repo.saveError
+
     fun addWords(list: List<WordEntry>, replace: Boolean): Int = repo.addWords(list, replace)
 
     fun updateWords(transform: (List<WordEntry>) -> List<WordEntry>) = repo.updateWords(transform)
@@ -29,19 +35,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeWrong(wordId: String) = repo.removeWrong(wordId)
 
+    /** 读取当前错题记录，供撤销时还原原次数与时间。 */
+    fun wrongRecordOf(wordId: String): WrongRecord? = repo.wrongRecordOf(wordId)
+
+    /** 按原值还原错题记录。 */
+    fun restoreWrong(record: WrongRecord) = repo.restoreWrong(record)
+
     fun clearWrong() = repo.clearWrong()
 
-    suspend fun aiDistractors(word: WordEntry, chinese: Boolean): List<String> {
-        val s = settings.value
-        if (!s.apiEnabled) return emptyList()
-        return DeepSeekApi.aiDistractors(
-            s,
+    fun clearLoadError() = repo.clearLoadError()
+
+    fun clearSaveError() = repo.clearSaveError()
+
+    suspend fun aiDistractors(word: WordEntry, chinese: Boolean): List<String> =
+        DeepSeekApi.aiDistractors(
+            settings.value,
             word.word,
             word.pos,
             if (chinese) word.meaning else word.word,
             chinese
         )
-    }
 
     suspend fun moreInfo(word: WordEntry): DeepSeekApi.AiInfoResult =
         DeepSeekApi.moreInfo(settings.value, word.word, word.pos)

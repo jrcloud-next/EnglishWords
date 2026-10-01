@@ -6,10 +6,10 @@
 
 ### 单词导入
 
-- **简单导入**：直接粘贴文本，支持 `1. hello  n.  你好` 格式（序号、词性可省略，支持词组）
+- **简单导入**：直接粘贴文本，支持 `1. hello  n.  你好` 格式（序号、词性可省略，支持词组，也支持 `U.S.`、`3D`、`2024` 这类词头）
 - **文件导入**：支持 TXT / DOCX 文件导入；TXT 优先识别 UTF-8，校验失败时回退 GBK，另支持带 BOM 的 UTF-16LE；DOCX 提取正文文本，不保留排版
 - 导入前可预览解析结果；单次解析按“英文单词 + 词性”（忽略大小写）去重，保留首次出现的条目；追加导入使用同一规则与现有词库去重
-- 支持清空词库后导入；当前替换导入不会清理旧错题记录
+- 支持「清空现有单词及其学习记录后导入」；替换导入会整体替换词库并同时清空错题本
 
 ### 四种记忆模式
 
@@ -24,33 +24,44 @@
 - 每轮默认 10 题，可选 5/10/15/20，实际题数不超过可用词条数；错题重练不超过当前词库中的错词数量
 - 拼写提示保留原词大小写，判分忽略大小写及非字母数字字符
 - 结束后显示成绩和错词回顾
+- 屏幕旋转或应用被系统回收重建后，本轮题号、作答与得分会保留；错题重练在重建后仍是错题重练
 
 ### 错题本
 
 - 答错自动收录，答对自动移出
 - 同一词条在四种模式间共用错题记录，可选择任一模式重练
-- 按首字母分组排序，支持单条移出和清空；单条移出后可撤销，但当前实现会重新建立记录，不恢复原错误次数和时间
+- 按首字母分组排序，支持单条移出和清空；单条移出后可撤销，撤销按原值还原，错误次数与最近答错时间不变
 
 ### AI 扩展（可选）
 
-- 四选一干扰项优先由 AI 生成；未配置、关闭 AI、请求失败或候选不足时，依次从词库和内置列表补足
+- 四选一干扰项优先由 AI 生成；题目先立即显示，选项再按题异步补齐（同时最多 4 个请求，单题最多等 10 秒）。未配置、关闭 AI、超时、请求失败或候选不足时，依次从词库和内置列表补足，因此个别题目可能用的是兜底选项
 - 单词详情页可查看 AI 生成的多义项和例句
 - 支持 OpenAI 兼容的 Chat Completions API；首次使用时 API 地址、模型名称和 API Key 均为空，需自行填写
 - API 三项输入需点击“保存配置”才会更新配置；“测试连接”使用当前输入发起请求，不代替保存；AI 开关和每轮题数在更改时立即更新并触发保存
 
 ### 单词本管理
 
-- 搜索、删除、清空；单条删除可撤销，但只恢复词条，不恢复删除时移除的错题记录
+- 搜索、删除、清空；单条删除可撤销，词条与删除时联动清理的错题记录会一并按原值恢复
 - 已练习词条按历史正确率显示掌握度圆点，颜色随主题变化；未练习词条不显示圆点
+- 数据文件损坏时首页会给出提示并保留原文件备份（`<文件名>.corrupt-<时间戳>`），不再静默变成空词库；保存失败也会弹出提示
 
 ## 技术栈
 
 - **语言**：Kotlin
-- **UI**：Jetpack Compose + Material3
+- **UI**：Jetpack Compose + Material3（Android 12+ 系统动态取色，支持跟随系统的深色模式）
 - **架构**：单 Activity + 手写路由
 - **序列化**：kotlinx.serialization
 - **网络**：OkHttp
 - **最低版本**：Android 8.0（API 26）
+
+## 界面
+
+- 首页为**渐变主色统计卡**（词库单词 / 已掌握 / AI 状态，数字带滚动动画），下方为四种记忆模式入口、错题本横幅与三个快捷入口
+- 四个记忆模式各有一个固定的分类识别色（靛蓝 / 青 / 琥珀 / 粉，做成的渐变图标块），深色模式下自动换成对比度更高的浅色调；其余界面元素全部跟随系统动态取色
+- 答题结束的成绩页使用**渐变圆形进度环**展示正确率；答题选项在出现时错落入场，对/错状态平滑变色
+- 深色模式跟随系统：Android 12+ 使用 `dynamicDarkColorScheme`，低版本使用内置深色方案；启动窗口也已配 `values-night` 主题，避免冷启动闪白
+- 圆角、字阶、语义色（答题正确绿）与渐变停靠点统一由主题提供，不再散落在各页面
+- 动效遵循"明显但不循环"：只有入场、按压回弹、变色与进度生长，没有常驻重绘动画
 
 ## 编译环境
 
@@ -62,8 +73,11 @@
 | Kotlin | 2.0.21 |
 | Compose BOM | 2024.10.01 |
 | compileSdk | 35 |
+| versionName / versionCode | 1.1 / 2 |
 
-`gradle/wrapper` 已指向 Gradle 8.10.2，与本机构建基线一致（2026-10-01 由 9.6.0 回退，未重新构建验证），可直接使用 `./gradlew`。下文示例显式调用本机 Gradle 8.10.2，两者目标版本相同；构建时请指定 JDK 17。本次仅核对文档与配置，未重新构建。
+`gradle/wrapper` 已指向 Gradle 8.10.2，与本机构建基线一致，可直接使用 `./gradlew`；下文示例显式调用本机 Gradle 8.10.2，两者目标版本相同。构建时请指定 JDK 17。
+
+> 当前源码 `versionName`/`versionCode` 与 SettingsScreen「关于」文案均为 v1.1，三者一致。仅修改文档不需要递增版本号；修改应用代码后请按同一流程同步这三处。
 
 ## 编译步骤
 
@@ -120,24 +134,33 @@ export JAVA_HOME="/path/to/jdk-17"
 ## 项目结构
 
 ```
-app/src/main/java/com/jr/englishword/
-├── MainActivity.kt          # 入口，路由管理
-├── data/
-│   ├── Models.kt            # 数据模型
-│   ├── Parser.kt            # 词表解析
-│   └── Repository.kt        # 数据持久化
-├── net/
-│   └── DeepSeekApi.kt       # AI API 客户端
-└── ui/
-    ├── AppViewModel.kt      # 状态管理
-    ├── theme/Theme.kt       # 主题配色
-    └── screens/
-        ├── HomeScreen.kt    # 首页
-        ├── ImportScreen.kt  # 导入
-        ├── QuizScreen.kt    # 答题
-        ├── ListScreen.kt    # 单词本
-        ├── WrongBookScreen.kt # 错题本
-        └── SettingsScreen.kt  # 设置
+app/src/main/
+├── AndroidManifest.xml
+├── java/com/jr/englishword/
+│   ├── MainActivity.kt            # 入口：单 Activity + 手写路由；Snackbar 与落盘失败提示
+│   ├── data/
+│   │   ├── Models.kt              # WordEntry / WrongRecord / AppSettings / QuizMode
+│   │   ├── Parser.kt              # 词表行解析、DOCX 正文提取、TXT 编码自适应
+│   │   └── Repository.kt          # 单例；StateFlow + JSON 持久化（合并写、原子替换、读写错误上报）
+│   ├── net/
+│   │   └── DeepSeekApi.kt         # OpenAI 兼容 Chat Completions 客户端
+│   └── ui/
+│       ├── AppViewModel.kt        # AndroidViewModel，转发 Repository 与 AI 调用
+│       ├── QuizSession.kt         # 答题会话模型 + rememberSaveable Saver（跨旋转/重建保留本轮）
+│       ├── components/
+│       │   ├── CommonUi.kt        # IconChip / GradientIconChip / InfoPill / SectionCardHeader
+│       │   └── Effects.kt         # GradientHero / CircularRingProgress / GradientBar / AnimatedCounter 等动效组件
+│       ├── theme/Theme.kt         # 动态取色（浅/深）+ AppShapes + AppTypography + LocalAppColors
+│       └── screens/
+│           ├── HomeScreen.kt      # 首页
+│           ├── ImportScreen.kt    # 导入
+│           ├── QuizScreen.kt      # 答题
+│           ├── ListScreen.kt      # 单词本
+│           ├── WrongBookScreen.kt # 错题本
+│           └── SettingsScreen.kt  # 设置
+└── res/
+    ├── values/                    # strings / colors / themes（浅色启动主题）
+    └── values-night/              # 深色启动主题与 window_bg，避免冷启动闪白
 ```
 
 ## 安全说明

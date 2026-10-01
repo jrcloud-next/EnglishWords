@@ -19,6 +19,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,8 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jr.englishword.data.QuizMode
-import com.jr.englishword.data.WordEntry
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.decodeWordListOrNull
+import com.jr.englishword.ui.encodeWordList
 import com.jr.englishword.ui.screens.HomeScreen
 import com.jr.englishword.ui.screens.ImportScreen
 import com.jr.englishword.ui.screens.ListScreen
@@ -56,12 +59,23 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(vm: AppViewModel) {
     var screen by rememberSaveable { mutableStateOf("home") }
     var quizMode by rememberSaveable { mutableStateOf(QuizMode.EN_CN.name) }
-    var quizOverride by remember { mutableStateOf<List<WordEntry>?>(null) }
-    var quizTitle by remember { mutableStateOf<String?>(null) }
+    // 错题重练的题源以 JSON 串保存：旋转/进程重建后仍能保持"错题重练"，
+    // 否则 overrideWords 归 null 会静默退化成全词库练习。
+    var quizOverrideJson by rememberSaveable { mutableStateOf("") }
+    val quizOverride = remember(quizOverrideJson) { decodeWordListOrNull(quizOverrideJson) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val toast: (String) -> Unit = { msg ->
         scope.launch { snackbarHostState.showSnackbar(msg) }
+    }
+
+    // 落盘失败必须让用户看到，而不是让"已保存"的假象留在界面上
+    val saveError by vm.saveError.collectAsState()
+    LaunchedEffect(saveError) {
+        saveError?.let {
+            toast(it)
+            vm.clearSaveError()
+        }
     }
 
     BackHandler(enabled = screen != "home") { screen = "home" }
@@ -89,8 +103,7 @@ fun AppRoot(vm: AppViewModel) {
                         onBack = { screen = "home" },
                         onStartQuiz = { m, words ->
                             quizMode = m.name
-                            quizOverride = words
-                            quizTitle = "错题重练"
+                            quizOverrideJson = encodeWordList(words)
                             screen = "quiz"
                         }
                     )
@@ -99,14 +112,13 @@ fun AppRoot(vm: AppViewModel) {
                         mode = QuizMode.valueOf(quizMode),
                         onExit = { screen = "home" },
                         overrideWords = quizOverride,
-                        screenTitle = quizTitle
+                        screenTitle = if (quizOverride != null) "错题重练" else null
                     )
                     else -> HomeScreen(
                         vm = vm,
                         onStartQuiz = { m ->
                             quizMode = m.name
-                            quizOverride = null
-                            quizTitle = null
+                            quizOverrideJson = ""
                             screen = "quiz"
                         },
                         goImport = { screen = "import" },

@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +18,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
@@ -54,6 +55,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,9 +64,13 @@ import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.Parser
 import com.jr.englishword.data.WordEntry
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.components.GradientIconChip
+import com.jr.englishword.ui.components.SegmentedTabs
+import com.jr.englishword.ui.theme.LocalAppColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 @Composable
 fun ImportScreen(
@@ -101,6 +107,9 @@ fun ImportScreen(
                 fileName = result.first
                 parsed = result.second
                 if (result.second.words.isEmpty()) toast("没有解析出任何单词，请检查文件格式")
+            } catch (e: CancellationException) {
+                // 协程取消（例如离开本页）需向上传播，不能当成解析失败
+                throw e
             } catch (e: Exception) {
                 toast("解析失败：${e.message}")
             } finally {
@@ -123,10 +132,14 @@ fun ImportScreen(
             Text("导入单词", fontSize = 19.sp, fontWeight = FontWeight.Bold)
         }
 
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("文件导入（TXT / DOCX）") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("简单导入") })
-        }
+        SegmentedTabs(
+            tabs = listOf("文件导入（TXT / DOCX）", "简单导入"),
+            selectedIndex = tab,
+            onSelect = { tab = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        )
 
         AnimatedContent(
             targetState = tab,
@@ -178,7 +191,7 @@ fun ImportScreen(
                 importedMsg?.let { msg ->
                     Spacer(Modifier.height(16.dp))
                     Card(
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.large,
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )
@@ -210,23 +223,25 @@ fun ImportScreen(
 private fun FileImportContent(fileName: String?, loading: Boolean, onPick: () -> Unit) {
     Card(
         onClick = onPick,
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        border = BorderStroke(1.5.dp, Brush.linearGradient(LocalAppColors.current.heroStops)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(28.dp),
+                .padding(horizontal = 24.dp, vertical = 34.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                Icons.Rounded.CloudUpload,
-                contentDescription = null,
+            GradientIconChip(
+                icon = Icons.Rounded.CloudUpload,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(44.dp)
+                size = 70.dp,
+                iconSize = 35.dp,
+                cornerRadius = 23.dp
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
             Text(
                 if (loading) "正在解析文件…" else "点击选择 TXT 或 DOCX 文件",
                 fontWeight = FontWeight.Medium,
@@ -258,7 +273,7 @@ private fun SimpleImportContent(rawInput: String, onInput: (String) -> Unit, onP
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
-        shape = RoundedCornerShape(18.dp)
+        shape = MaterialTheme.shapes.medium
     )
     Spacer(Modifier.height(12.dp))
     Button(
@@ -266,8 +281,8 @@ private fun SimpleImportContent(rawInput: String, onInput: (String) -> Unit, onP
         enabled = rawInput.isNotBlank(),
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp),
-        shape = RoundedCornerShape(16.dp)
+            .heightIn(min = 50.dp),
+        shape = MaterialTheme.shapes.medium
     ) { Text("解析内容", fontSize = 15.sp) }
 }
 
@@ -280,9 +295,10 @@ private fun PreviewCard(
     onImport: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -343,7 +359,7 @@ private fun PreviewCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = replace, onCheckedChange = onReplaceChange)
                 Text(
-                    "清空现有单词后导入",
+                    "清空现有单词及其学习记录后导入",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -354,8 +370,8 @@ private fun PreviewCard(
                 enabled = result.words.isNotEmpty(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .heightIn(min = 50.dp),
+                shape = MaterialTheme.shapes.medium
             ) { Text("导入 ${result.words.size} 个单词", fontSize = 15.sp) }
         }
     }

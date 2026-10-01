@@ -4,15 +4,15 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.IOException
 
 /** 词库与设置仓库：内存 StateFlow + JSON 文件持久化。 */
 class Repository private constructor(context: Context) {
@@ -22,11 +22,7 @@ class Repository private constructor(context: Context) {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
-        prettyPrint = true
     }
-    private val wordsMutex = Mutex()
-    private val settingsMutex = Mutex()
-    private val wrongMutex = Mutex()
 
     private val wordsFile = File(appContext.filesDir, "words.json")
     private val settingsFile = File(appContext.filesDir, "api_settings.json")
@@ -41,25 +37,45 @@ class Repository private constructor(context: Context) {
     private val _wrong = MutableStateFlow<List<WrongRecord>>(emptyList())
     val wrong: StateFlow<List<WrongRecord>> = _wrong
 
+    /** 读取失败（文件损坏）提示；null 表示正常。 */
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError
+
+    /** 落盘失败提示；null 表示正常。 */
+    private val _saveError = MutableStateFlow<String?>(null)
+    val saveError: StateFlow<String?> = _saveError
+
+    /**
+     * 每个文件一个「待写入」信号。CONFLATED 只保留一个未处理信号，且写入时才读取当前状态，
+     * 因此连续修改既不会造成写放大，也不会出现旧快照覆盖新快照。
+     * 每个文件只有这一个消费者协程，同一文件不会并发写入。
+     */
+    private val wordsSignal = Channel<Unit>(Channel.CONFLATED)
+    private val settingsSignal = Channel<Unit>(Channel.CONFLATED)
+    private val wrongSignal = Channel<Unit>(Channel.CONFLATED)
+
     init {
-        runCatching {
-            if (wordsFile.exists()) {
-                _words.value = json.decodeFromString<List<WordEntry>>(wordsFile.readText())
-            }
+        if (wordsFile.exists()) {
+            runCatching { json.decodeFromString<List<WordEntry>>(wordsFile.readText()) }
+                .onSuccess { _words.value = it }
+                .onFailure { onLoadFailure(wordsFile, it) }
         }
-        runCatching {
-            if (settingsFile.exists()) {
+        if (settingsFile.exists()) {
+            runCatching {
                 val raw = settingsFile.readText()
-                if (raw.isNotBlank()) {
-                    _settings.value = json.decodeFromString<AppSettings>(raw)
-                }
+                if (raw.isBlank()) AppSettings() else json.decodeFromString<AppSettings>(raw)
             }
+                .onSuccess { _settings.value = it }
+                .onFailure { onLoadFailure(settingsFile, it) }
         }
-        runCatching {
-            if (wrongFile.exists()) {
-                _wrong.value = json.decodeFromString<List<WrongRecord>>(wrongFile.readText())
-            }
+        if (wrongFile.exists()) {
+            runCatching { json.decodeFromString<List<WrongRecord>>(wrongFile.readText()) }
+                .onSuccess { _wrong.value = it }
+                .onFailure { onLoadFailure(wrongFile, it) }
         }
+        scope.launch { while (true) { wordsSignal.receive(); writeWords() } }
+        scope.launch { while (true) { settingsSignal.receive(); writeSettings() } }
+        scope.launch { while (true) { wrongSignal.receive(); writeWrong() } }
     }
 
     /** 导入单词；replace=false 时按（单词+词性）去重追加。返回实际新增数量。 */
@@ -67,7 +83,10 @@ class Repository private constructor(context: Context) {
         if (list.isEmpty()) return 0
         if (replace) {
             _words.value = list
+            // 词条被整体替换后，旧 ID 的错题记录已无对应单词，一并清理
+            _wrong.value = emptyList()
             persistWords()
+            persistWrong()
             return list.size
         }
         val existing = _words.value.mapTo(HashSet()) { it.word.lowercase() + "|" + it.pos.lowercase() }
@@ -114,44 +133,86 @@ class Repository private constructor(context: Context) {
         persistWrong()
     }
 
+    /** 读取某单词当前的错题记录，供删除/移出后撤销时还原原值。 */
+    fun wrongRecordOf(wordId: String): WrongRecord? =
+        _wrong.value.firstOrNull { it.wordId == wordId }
+
+    /** 按原值还原错题记录；与 addWrong 不同，不会重置错误次数与时间。 */
+    fun restoreWrong(record: WrongRecord) {
+        if (_wrong.value.any { it.wordId == record.wordId }) return
+        _wrong.value = _wrong.value + record
+        persistWrong()
+    }
+
     fun clearWrong() {
         _wrong.value = emptyList()
         persistWrong()
     }
 
-    private fun persistWrong() {
-        val snapshot = _wrong.value
-        scope.launch {
-            wrongMutex.withLock {
-                runCatching { writeAtomic(wrongFile, json.encodeToString(snapshot)) }
-            }
-        }
-    }
-
-    /** 保存 API 配置到磁盘并更新内存状态 */
+    /** 保存 API 配置并触发落盘 */
     fun updateSettings(s: AppSettings) {
         _settings.value = s
-        scope.launch {
-            settingsMutex.withLock {
-                runCatching { writeAtomic(settingsFile, json.encodeToString(s)) }
-            }
-        }
+        persistSettings()
+    }
+
+    fun clearLoadError() {
+        _loadError.value = null
+    }
+
+    fun clearSaveError() {
+        _saveError.value = null
+    }
+
+    /** 读取失败时备份原文件并给出提示，避免静默降级为空数据。 */
+    private fun onLoadFailure(file: File, e: Throwable) {
+        val backup = File(file.parentFile, file.name + ".corrupt-" + System.currentTimeMillis())
+        runCatching { file.copyTo(backup, overwrite = true) }
+        _loadError.value = "${file.name} 无法读取，本次按空数据启动；原文件已备份为 ${backup.name}。" +
+            "原因：${e.message ?: e.javaClass.simpleName}"
+    }
+
+    private fun reportSaveFailure(what: String, e: Throwable) {
+        _saveError.value = "${what}保存失败：${e.message ?: e.javaClass.simpleName}"
     }
 
     private fun persistWords() {
+        wordsSignal.trySend(Unit)
+    }
+
+    private fun persistWrong() {
+        wrongSignal.trySend(Unit)
+    }
+
+    private fun persistSettings() {
+        settingsSignal.trySend(Unit)
+    }
+
+    private fun writeWords() {
         val snapshot = _words.value
-        scope.launch {
-            wordsMutex.withLock {
-                runCatching { writeAtomic(wordsFile, json.encodeToString(snapshot)) }
-            }
-        }
+        runCatching { writeAtomic(wordsFile, json.encodeToString(snapshot)) }
+            .onFailure { reportSaveFailure("词库", it) }
+    }
+
+    private fun writeSettings() {
+        val snapshot = _settings.value
+        runCatching { writeAtomic(settingsFile, json.encodeToString(snapshot)) }
+            .onFailure { reportSaveFailure("设置", it) }
+    }
+
+    private fun writeWrong() {
+        val snapshot = _wrong.value
+        runCatching { writeAtomic(wrongFile, json.encodeToString(snapshot)) }
+            .onFailure { reportSaveFailure("错题本", it) }
     }
 
     private fun writeAtomic(target: File, content: String) {
         val tmp = File(target.parentFile, target.name + ".tmp")
         tmp.writeText(content)
-        if (target.exists()) target.delete()
-        tmp.renameTo(target)
+        // 同目录 rename 在 Android（Linux）上是原子替换，避免「先删后改名」之间的空窗
+        if (!tmp.renameTo(target)) {
+            if (target.exists() && !target.delete()) throw IOException("无法删除 ${target.name}")
+            if (!tmp.renameTo(target)) throw IOException("无法写入 ${target.name}")
+        }
     }
 
     companion object {

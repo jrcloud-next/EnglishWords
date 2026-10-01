@@ -18,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 
 /** OpenAI 兼容 Chat Completions 客户端（默认 DeepSeek），并提供 AI 扩展能力。 */
 object DeepSeekApi {
@@ -44,6 +45,10 @@ object DeepSeekApi {
     /** 三项 API 配置是否完整。 */
     fun isConfigured(settings: AppSettings): Boolean =
         settings.baseUrl.isNotBlank() && settings.model.isNotBlank() && settings.apiKey.isNotBlank()
+
+    /** AI 是否已开启且配置完整。全应用唯一的「AI 可用」判定，避免多处各写一遍。 */
+    fun isReady(settings: AppSettings): Boolean =
+        settings.apiEnabled && isConfigured(settings)
 
     sealed class ApiResult {
         data class Ok(val content: String, val latencyMs: Long) : ApiResult()
@@ -115,6 +120,9 @@ object DeepSeekApi {
                 if (content.isNullOrBlank()) ApiResult.Err("接口返回内容为空")
                 else ApiResult.Ok(content, System.currentTimeMillis() - started)
             }
+        } catch (e: CancellationException) {
+            // 协程取消必须向上传播，不能被当成普通网络错误吞掉
+            throw e
         } catch (e: Exception) {
             ApiResult.Err(e.message ?: e.javaClass.simpleName)
         }
@@ -137,7 +145,7 @@ object DeepSeekApi {
         correct: String,
         chinese: Boolean
     ): List<String> {
-        if (!settings.apiEnabled || !isConfigured(settings)) return emptyList()
+        if (!isReady(settings)) return emptyList()
         val withPos = if (pos.isNotBlank()) "$word ($pos)" else word
         val user = if (chinese) {
             "英语单词「$withPos」的正确中文释义是「$correct」。请生成3个错误的中文释义作为四选一选择题的干扰项。" +

@@ -1,7 +1,9 @@
 package com.jr.englishword.ui.screens
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,7 +34,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,9 +43,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,39 +53,39 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jr.englishword.data.AppSettings
 import com.jr.englishword.data.QuizMode
 import com.jr.englishword.data.WordEntry
+import com.jr.englishword.ui.AnswerState
 import com.jr.englishword.ui.AppViewModel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import com.jr.englishword.ui.Question
+import com.jr.englishword.ui.QuizSession
+import com.jr.englishword.ui.QuizSessionSaver
+import com.jr.englishword.ui.components.AnimatedCounter
+import com.jr.englishword.ui.components.CircularRingProgress
+import com.jr.englishword.ui.components.GradientBar
+import com.jr.englishword.ui.components.InfoPill
+import com.jr.englishword.ui.components.motionSpec
+import com.jr.englishword.ui.components.pressableScale
+import com.jr.englishword.ui.components.staggeredAppear
+import com.jr.englishword.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 
-private val GREEN = Color(0xFF16A34A)
+/** 单题干扰项的等待上限；超时即退回词库/内置干扰项，避免整轮被最慢的一次请求拖住。 */
+private const val OPTIONS_TIMEOUT_MS = 10_000L
 
-data class Question(
-    val word: WordEntry,
-    val options: List<String> = emptyList(),
-    val correctIndex: Int = -1
-)
-
-/** 每道题的作答状态，支持在题目间前进/后退时还原。 */
-data class AnswerState(
-    val selected: Int = -1,
-    val typed: String = "",
-    val answered: Boolean = false,
-    val correct: Boolean = false
-)
+/** 同时进行的干扰项请求数上限。 */
+private const val AI_CONCURRENCY = 4
 
 fun normalizeZh(s: String): String = s.lowercase().filter {
     !it.isWhitespace() && it !in "。，、；：！？!?,.;:()（）「」『』·~－—-_'\"“”‘’　"
@@ -116,21 +118,23 @@ private val FALLBACK_EN = listOf(
     "answer", "lesson"
 )
 
-private suspend fun buildOptions(
+/**
+ * 组装四选一选项：优先用已取得的 AI 干扰项，不足时依次从词库、内置列表补齐。
+ * 网络请求由调用方在超时保护下完成，本函数不做 IO。
+ */
+private fun buildOptions(
     correct: String,
     pool: List<String>,
-    settings: AppSettings,
-    word: WordEntry,
-    chinese: Boolean,
-    vm: AppViewModel
-): Pair<List<String>, Boolean> {
+    ai: List<String>,
+    chinese: Boolean
+): List<String> {
     val norm: (String) -> String = if (chinese) ::normalizeZh else ::normalizeEn
 
-    // 干扰项优先全部由 AI 生成
-    var distractors = if (settings.apiEnabled) vm.aiDistractors(word, chinese) else emptyList()
-    val usedAi = distractors.isNotEmpty()
+    var distractors = ai.map { it.trim() }
+        .filter { it.isNotEmpty() && norm(it) != norm(correct) }
+        .distinctBy { norm(it) }
+        .take(3)
 
-    // AI 未配置/失败时回退：先词库，再内置列表
     if (distractors.size < 3) {
         val fromBank = pool.filter { norm(it) != norm(correct) }
             .distinctBy { norm(it) }
@@ -144,7 +148,7 @@ private suspend fun buildOptions(
             .shuffled()
         distractors = (distractors + fallback).take(3)
     }
-    return (distractors + correct).shuffled() to usedAi
+    return (distractors + correct).shuffled()
 }
 
 @Composable
@@ -157,80 +161,116 @@ fun QuizScreen(
 ) {
     val focusManager = LocalFocusManager.current
 
-    var restartKey by remember { mutableIntStateOf(0) }
-    var preparing by remember { mutableStateOf(true) }
-    var questions by remember { mutableStateOf<List<Question>>(emptyList()) }
-    var answers by remember { mutableStateOf<List<AnswerState>>(emptyList()) }
-    var index by remember { mutableIntStateOf(0) }
-    var score by remember { mutableIntStateOf(0) }
+    // 整轮会话整体可保存：旋转或进程重建后不丢进度，错题重练也不会退化成全词库练习
+    var session by rememberSaveable(stateSaver = QuizSessionSaver) { mutableStateOf(QuizSession()) }
+    // 仅用于触发"答对后 0.9s 自动跳转"，属于瞬时信号，无需保存
     var justAnswered by remember { mutableIntStateOf(-1) }
-    val wrongWords = remember { mutableStateListOf<WordEntry>() }
 
-    fun setAnswer(i: Int, a: AnswerState) {
-        answers = answers.toMutableList().also { if (i < it.size) it[i] = a }
+    val questions = session.questions
+    val answers = session.answers
+    val index = session.index
+    val preparing = session.preparing
+
+    // 种子变化才重新生成题目；seed 相同说明题目已就绪（含从 savedInstanceState 恢复的情况）
+    val seed = remember(mode, session.restartKey, overrideWords) {
+        buildString {
+            append(mode.name).append('#').append(session.restartKey).append('#')
+            if (overrideWords == null) append("ALL") else overrideWords.joinTo(this, ",") { it.id }
+        }
+    }
+
+    /** 选项只写入一次，且不覆盖已作答的题目，避免选项与作答下标错位。 */
+    fun setOptions(i: Int, wordId: String, options: List<String>, correctIndex: Int) {
+        val current = session.questions.getOrNull(i) ?: return
+        if (current.word.id != wordId) return // 上一轮的迟到结果，丢弃
+        if (current.options.isNotEmpty()) return
+        if (session.answers.getOrNull(i)?.answered == true) return
+        session = session.copy(
+            questions = session.questions.toMutableList()
+                .also { it[i] = current.copy(options = options, correctIndex = correctIndex) }
+        )
+    }
+
+    /** 提交当前题作答；以会话状态为准做守卫，重复触发不会重复计分。 */
+    fun submitAnswer(correct: Boolean, selected: Int = -1) {
+        val i = session.index
+        val a = session.answers.getOrNull(i) ?: return
+        if (a.answered) return
+        val q = session.questions.getOrNull(i) ?: return
+        session = session.copy(
+            answers = session.answers.toMutableList().also {
+                it[i] = a.copy(
+                    selected = if (selected >= 0) selected else a.selected,
+                    answered = true,
+                    correct = correct
+                )
+            },
+            score = if (correct) session.score + 1 else session.score,
+            wrongWords = if (correct) session.wrongWords else session.wrongWords + q.word
+        )
+        vm.recordResult(q.word.id, correct)
+        if (correct) vm.removeWrong(q.word.id) else vm.addWrong(q.word.id)
+        justAnswered = i
     }
 
     fun navigate(delta: Int) {
         focusManager.clearFocus()
         justAnswered = -1
-        val target = index + delta
-        if (target in questions.indices) index = target
-        else if (delta > 0) index = questions.size // 最后一题的"查看结果"
+        val target = session.index + delta
+        session = when {
+            target in session.questions.indices -> session.copy(index = target)
+            delta > 0 -> session.copy(index = session.questions.size)
+            else -> session
+        }
     }
 
-    LaunchedEffect(mode, restartKey) {
-        preparing = true
-        index = 0; score = 0; justAnswered = -1
-        wrongWords.clear()
+    LaunchedEffect(seed) {
+        if (session.seed == seed) return@LaunchedEffect
+
         val bank = (overrideWords ?: vm.words.value).shuffled()
-        if (bank.isEmpty()) {
-            questions = emptyList()
-            answers = emptyList()
-            preparing = false
-            return@LaunchedEffect
-        }
         val s = vm.settings.value
-        val n = minOf(s.questionsPerRound, bank.size)
-        val picked = bank.take(n)
+        val picked = bank.take(minOf(s.questionsPerRound, bank.size))
+        val isChoice = mode == QuizMode.EN_CN || mode == QuizMode.CN_EN
+
+        // 题目一次性落位，首题立即可见；选项随后逐题补齐，不再等整轮 AI 请求
+        session = QuizSession(
+            seed = seed,
+            restartKey = session.restartKey,
+            questions = picked.map { Question(it) },
+            answers = List(picked.size) { AnswerState() },
+            preparing = false
+        )
+        if (picked.isEmpty() || !isChoice) return@LaunchedEffect
+
         val all = vm.words.value
-        // 四选一的干扰项走 AI，逐题并行请求（限流 4 并发），词库兜底
-        val sem = Semaphore(4)
-        val qs = coroutineScope {
-            picked.map { w ->
-                async {
-                    sem.withPermit {
-                        when (mode) {
-                            QuizMode.EN_CN -> {
-                                val pool = all.filter { it.id != w.id }.map { it.meaning }
-                                val (opts, _) = buildOptions(w.meaning, pool, s, w, chinese = true, vm = vm)
-                                Question(w, opts, opts.indexOfFirst { normalizeZh(it) == normalizeZh(w.meaning) })
-                            }
-                            QuizMode.CN_EN -> {
-                                val pool = all.filter { it.id != w.id }.map { it.word }
-                                val (opts, _) = buildOptions(w.word, pool, s, w, chinese = false, vm = vm)
-                                Question(w, opts, opts.indexOfFirst { normalizeEn(it) == normalizeEn(w.word) })
-                            }
-                            QuizMode.DICTATION, QuizMode.SPELLING -> Question(w)
-                        }
-                    }
+        val chinese = mode == QuizMode.EN_CN
+        val sem = Semaphore(AI_CONCURRENCY)
+        picked.forEachIndexed { i, w ->
+            launch {
+                sem.withPermit {
+                    val correct = if (chinese) w.meaning else w.word
+                    val pool = all.filter { it.id != w.id }.map { if (chinese) it.meaning else it.word }
+                    val ai = withTimeoutOrNull(OPTIONS_TIMEOUT_MS) {
+                        vm.aiDistractors(w, chinese)
+                    } ?: emptyList()
+                    val opts = buildOptions(correct, pool, ai, chinese)
+                    val norm: (String) -> String = if (chinese) ::normalizeZh else ::normalizeEn
+                    setOptions(i, w.id, opts, opts.indexOfFirst { norm(it) == norm(correct) })
                 }
-            }.awaitAll()
+            }
         }
-        answers = List(qs.size) { AnswerState() }
-        questions = qs
-        preparing = false
     }
 
     // 答对后 0.9s 自动跳转；答错停留展示正确答案，由用户点「下一题」继续。
     // 手动前进/后退会取消自动跳转。
-    LaunchedEffect(justAnswered, index) {
-        val a = answers.getOrNull(index)
-        if (justAnswered >= 0 && justAnswered == index && a?.answered == true && a.correct) {
+    LaunchedEffect(justAnswered, session.index) {
+        val a = session.answers.getOrNull(session.index)
+        if (justAnswered >= 0 && justAnswered == session.index && a?.answered == true && a.correct) {
             delay(900L)
-            if (justAnswered == index) {
+            if (justAnswered == session.index) {
                 justAnswered = -1
                 focusManager.clearFocus()
-                index++
+                session = session.copy(index = session.index + 1)
             }
         }
     }
@@ -259,24 +299,19 @@ fun QuizScreen(
             }
             Spacer(Modifier.weight(1f))
             if (questions.isNotEmpty()) {
-                Text(
-                    "${minOf(index + 1, questions.size)} / ${questions.size}",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
+                InfoPill(
+                    text = "${minOf(index + 1, questions.size)} / ${questions.size}",
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
-        LinearProgressIndicator(
-            progress = {
-                if (questions.isEmpty()) 0f
-                else (index.toFloat() / questions.size).coerceIn(0f, 1f)
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp),
-            strokeCap = StrokeCap.Round
+        Spacer(Modifier.height(10.dp))
+        GradientBar(
+            progress = if (questions.isEmpty()) 0f else index.toFloat() / questions.size,
+            stops = LocalAppColors.current.ringStops
         )
         Spacer(Modifier.height(16.dp))
 
@@ -288,10 +323,8 @@ fun QuizScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     Spacer(Modifier.height(14.dp))
-                    val usingAi = vm.settings.value.apiEnabled &&
-                        (mode == QuizMode.EN_CN || mode == QuizMode.CN_EN)
                     Text(
-                        if (usingAi) "AI 正在生成干扰项…" else "正在准备题目…",
+                        "正在准备题目…",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -317,11 +350,14 @@ fun QuizScreen(
                 }
             }
             finished -> ResultContent(
-                score = score,
+                score = session.score,
                 total = questions.size,
-                wrongWords = wrongWords.toList(),
+                wrongWords = session.wrongWords,
                 onExit = onExit,
-                onRestart = { restartKey++ },
+                onRestart = {
+                    justAnswered = -1
+                    session = session.copy(restartKey = session.restartKey + 1)
+                },
                 modifier = Modifier.weight(1f)
             )
             else -> {
@@ -336,18 +372,8 @@ fun QuizScreen(
                         answer = a,
                         modifier = Modifier.weight(1f)
                     ) { i ->
-                        if (!a.answered) {
-                            val ok = i == q.correctIndex
-                            setAnswer(index, a.copy(selected = i, answered = true, correct = ok))
-                            vm.recordResult(q.word.id, ok)
-                            if (ok) {
-                                score++
-                                vm.removeWrong(q.word.id)
-                            } else {
-                                wrongWords.add(q.word)
-                                vm.addWrong(q.word.id)
-                            }
-                            justAnswered = index
+                        if (!a.answered && q.correctIndex >= 0) {
+                            submitAnswer(i == q.correctIndex, selected = i)
                         }
                     }
                 } else {
@@ -356,21 +382,26 @@ fun QuizScreen(
                         mode = mode,
                         answer = a,
                         modifier = Modifier.weight(1f),
-                        onTyped = { text -> setAnswer(index, a.copy(typed = text)) },
+                        onTyped = { text ->
+                            val i = session.index
+                            val cur = session.answers.getOrNull(i)
+                            if (cur != null && !cur.answered) {
+                                session = session.copy(
+                                    answers = session.answers.toMutableList()
+                                        .also { it[i] = cur.copy(typed = text) }
+                                )
+                            }
+                        },
                         onSubmit = {
-                            if (!a.answered && a.typed.isNotBlank()) {
-                                val ok = if (mode == QuizMode.DICTATION) checkZhAnswer(a.typed, q.word.meaning)
-                                else normalizeEn(a.typed) == normalizeEn(q.word.word)
-                                setAnswer(index, a.copy(answered = true, correct = ok))
-                                vm.recordResult(q.word.id, ok)
-                                if (ok) {
-                                    score++
-                                    vm.removeWrong(q.word.id)
+                            val i = session.index
+                            val cur = session.answers.getOrNull(i)
+                            if (cur != null && !cur.answered && cur.typed.isNotBlank()) {
+                                val ok = if (mode == QuizMode.DICTATION) {
+                                    checkZhAnswer(cur.typed, q.word.meaning)
                                 } else {
-                                    wrongWords.add(q.word)
-                                    vm.addWrong(q.word.id)
+                                    normalizeEn(cur.typed) == normalizeEn(q.word.word)
                                 }
-                                justAnswered = index
+                                submitAnswer(ok)
                             }
                         }
                     )
@@ -382,15 +413,15 @@ fun QuizScreen(
                         enabled = index > 0,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(16.dp)
+                            .heightIn(min = 48.dp),
+                        shape = MaterialTheme.shapes.medium
                     ) { Text("上一题") }
                     Button(
                         onClick = { navigate(1) },
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(16.dp)
+                            .heightIn(min = 48.dp),
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Text(
                             when {
@@ -416,6 +447,7 @@ private fun ChoiceContent(
     onSelect: (Int) -> Unit
 ) {
     val answered = answer.answered
+    val appColors = LocalAppColors.current
     Column(
         modifier
             .fillMaxWidth()
@@ -423,10 +455,10 @@ private fun ChoiceContent(
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(26.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            border = BorderStroke(1.5.dp, Brush.linearGradient(appColors.heroStops)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
                 Modifier
@@ -465,70 +497,108 @@ private fun ChoiceContent(
             }
         }
         Spacer(Modifier.height(18.dp))
-        q.options.forEachIndexed { i, opt ->
-            val isCorrect = i == q.correctIndex
-            val isPicked = i == answer.selected
-            val borderColor = when {
-                answered && isCorrect -> GREEN
-                answered && isPicked -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.outlineVariant
-            }
-            val containerColor = when {
-                answered && isCorrect -> GREEN.copy(alpha = 0.08f)
-                answered && isPicked -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.surface
-            }
-            Card(
-                onClick = { onSelect(i) },
-                enabled = !answered,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = containerColor),
-                border = BorderStroke(1.5.dp, borderColor)
+        if (q.options.isEmpty()) {
+            // 选项尚在生成：只占位，不伪造内容；仍可用「跳过」前进
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 30.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(
-                    Modifier
+                CircularProgressIndicator(modifier = Modifier.size(26.dp), strokeWidth = 3.dp)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "正在生成选项…",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            q.options.forEachIndexed { i, opt ->
+                val isCorrect = i == q.correctIndex
+                val isPicked = i == answer.selected
+                val borderColor by animateColorAsState(
+                    targetValue = when {
+                        answered && isCorrect -> appColors.success
+                        answered && isPicked -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.outlineVariant
+                    },
+                    animationSpec = motionSpec(durationMillis = 220),
+                    label = "optBorder"
+                )
+                val containerColor by animateColorAsState(
+                    targetValue = when {
+                        answered && isCorrect -> appColors.successContainer
+                        answered && isPicked -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.surfaceContainerLowest
+                    },
+                    animationSpec = motionSpec(durationMillis = 220),
+                    label = "optContainer"
+                )
+                val optionSource = remember { MutableInteractionSource() }
+                Card(
+                    onClick = { onSelect(i) },
+                    enabled = !answered,
+                    interactionSource = optionSource,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .staggeredAppear(i, stepMillis = 40)
+                        .pressableScale(optionSource),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = containerColor),
+                    border = BorderStroke(1.5.dp, borderColor)
                 ) {
-                    Box(
+                    Row(
                         Modifier
-                            .size(28.dp)
-                            .background(
-                                if (answered && isCorrect) GREEN.copy(alpha = 0.15f)
-                                else MaterialTheme.colorScheme.surfaceVariant,
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Box(
+                            Modifier
+                                .size(30.dp)
+                                .background(
+                                    when {
+                                        answered && isCorrect -> appColors.success.copy(alpha = 0.18f)
+                                        answered && isPicked -> MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "${'A' + i}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    answered && isCorrect -> appColors.success
+                                    answered && isPicked -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
                         Text(
-                            "${'A' + i}",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (answered && isCorrect) GREEN else MaterialTheme.colorScheme.onSurfaceVariant
+                            opt,
+                            fontSize = 16.sp,
+                            fontWeight = if (answered && isCorrect) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                answered && isCorrect -> appColors.success
+                                answered && isPicked -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.weight(1f)
                         )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        opt,
-                        fontSize = 16.sp,
-                        fontWeight = if (answered && isCorrect) FontWeight.Bold else FontWeight.Normal,
-                        color = when {
-                            answered && isCorrect -> GREEN
-                            answered && isPicked -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (answered && isCorrect) {
-                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = GREEN, modifier = Modifier.size(20.dp))
-                    } else if (answered && isPicked) {
-                        Icon(Icons.Rounded.Cancel, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                        if (answered && isCorrect) {
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = appColors.success, modifier = Modifier.size(20.dp))
+                        } else if (answered && isPicked) {
+                            Icon(Icons.Rounded.Cancel, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
+                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.height(10.dp))
         }
         Spacer(Modifier.height(4.dp))
     }
@@ -546,6 +616,7 @@ private fun TypedContent(
     val isDictation = mode == QuizMode.DICTATION
     val answered = answer.answered
     val ok = answer.correct
+    val appColors = LocalAppColors.current
 
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(q.word.id) {
@@ -562,10 +633,10 @@ private fun TypedContent(
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(26.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            border = BorderStroke(1.5.dp, Brush.linearGradient(appColors.heroStops)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
                 Modifier
@@ -622,7 +693,7 @@ private fun TypedContent(
             enabled = !answered,
             minLines = 2,
             placeholder = { Text(if (isDictation) "输入中文意思…" else "输入英文单词…") },
-            shape = RoundedCornerShape(18.dp),
+            shape = MaterialTheme.shapes.medium,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onSubmit() })
         )
@@ -634,16 +705,16 @@ private fun TypedContent(
                 enabled = answer.typed.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .heightIn(min = 52.dp),
+                shape = MaterialTheme.shapes.medium
             ) { Text("提交", fontSize = 16.sp) }
         } else {
             Row(
                 Modifier
                     .fillMaxWidth()
                     .background(
-                        if (ok) GREEN.copy(alpha = 0.08f) else MaterialTheme.colorScheme.errorContainer,
-                        RoundedCornerShape(16.dp)
+                        if (ok) appColors.successContainer else MaterialTheme.colorScheme.errorContainer,
+                        MaterialTheme.shapes.medium
                     )
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -651,7 +722,7 @@ private fun TypedContent(
                 Icon(
                     if (ok) Icons.Rounded.CheckCircle else Icons.Rounded.Cancel,
                     contentDescription = null,
-                    tint = if (ok) GREEN else MaterialTheme.colorScheme.error,
+                    tint = if (ok) appColors.success else MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(Modifier.width(10.dp))
@@ -659,7 +730,7 @@ private fun TypedContent(
                     Text(
                         if (ok) "回答正确！" else "回答错误",
                         fontWeight = FontWeight.Bold,
-                        color = if (ok) GREEN else MaterialTheme.colorScheme.error
+                        color = if (ok) appColors.success else MaterialTheme.colorScheme.error
                     )
                     if (!ok) {
                         val correctAnswer = if (isDictation) q.word.meaning else q.word.word
@@ -682,6 +753,7 @@ private fun ResultContent(
     modifier: Modifier = Modifier
 ) {
     val pct = if (total == 0) 0 else (score * 100 / total)
+    val appColors = LocalAppColors.current
     val message = when {
         pct == 100 -> "太棒了，全部答对！"
         pct >= 80 -> "表现优秀！"
@@ -694,32 +766,80 @@ private fun ResultContent(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(30.dp))
-        Box(
-            Modifier
-                .size(132.dp)
-                .background(
-                    Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFF8B5CF6))),
-                    CircleShape
-                ),
-            contentAlignment = Alignment.Center
+        Spacer(Modifier.height(24.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            border = BorderStroke(1.5.dp, Brush.linearGradient(appColors.heroStops)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("$score", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Bold)
-                Text("/ $total 题", color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 26.dp, horizontal = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    // 满分时在环外补一层柔和光晕
+                    if (pct == 100) {
+                        Box(
+                            Modifier
+                                .size(196.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(
+                                            appColors.ringStops.first().copy(alpha = 0.20f),
+                                            Color.Transparent
+                                        )
+                                    ),
+                                    CircleShape
+                                )
+                        )
+                    }
+                    CircularRingProgress(
+                        progress = if (total == 0) 0f else score.toFloat() / total,
+                        stops = appColors.ringStops,
+                        size = 156.dp,
+                        strokeWidth = 14.dp
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            AnimatedCounter(
+                                value = score,
+                                style = TextStyle(
+                                    fontSize = 40.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 44.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "/ $total 题",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Rounded.EmojiEvents,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(message, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "正确率 $pct%",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-        Spacer(Modifier.height(18.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.EmojiEvents, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(message, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-        }
-        Text(
-            "正确率 $pct%",
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
 
         if (wrongWords.isNotEmpty()) {
             Spacer(Modifier.height(24.dp))
@@ -735,7 +855,7 @@ private fun ResultContent(
             wrongWords.forEach { w ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = MaterialTheme.shapes.medium,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
@@ -769,15 +889,15 @@ private fun ResultContent(
                 onClick = onExit,
                 modifier = Modifier
                     .weight(1f)
-                    .height(50.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .heightIn(min = 50.dp),
+                shape = MaterialTheme.shapes.medium
             ) { Text("返回首页") }
             Button(
                 onClick = onRestart,
                 modifier = Modifier
                     .weight(1f)
-                    .height(50.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .heightIn(min = 50.dp),
+                shape = MaterialTheme.shapes.medium
             ) { Text("再来一轮") }
         }
         Spacer(Modifier.height(20.dp))

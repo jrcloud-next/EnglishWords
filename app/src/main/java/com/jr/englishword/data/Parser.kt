@@ -15,17 +15,39 @@ object Parser {
 
     data class ParseResult(val words: List<WordEntry>, val failedLines: List<String>)
 
-    private val NUM_PREFIX = Regex("""^[（(]?\d{1,4}[)）]?\s*[\.、．]?\s*""")
+    private const val DIGITS = "0-9０-９"
 
     private val POS_SET =
         "vt|vi|adj|adv|prep|conj|pron|interj|int|art|aux|num|abbr|pl|phrase|n|v"
 
-    private val LINE_POS = Regex(
-        """^(?<word>[A-Za-z][A-Za-z'’\-]*(?:\s[A-Za-z'’\-]+)*)\s+(?<pos>$POS_SET)\s*\.\s*(?<rest>\S.*)$""",
+    /** 括号序号：（1）/ (1) */
+    private val NUM_PAREN = Regex("""^[（(]\s*[$DIGITS]{1,4}\s*[)）]\s*""")
+
+    /** 序号 + 分隔符：`1.` / `1、` / `1．`；后接数字时不视为序号，避免切坏 `1.5` 这类词。 */
+    private val NUM_DOT = Regex("""^[$DIGITS]{1,4}\s*[\.、．]\s*(?![$DIGITS])""")
+
+    /**
+     * 裸序号（无分隔符）：仅当其后既不是词性标记、也不是非 ASCII 开头时才剥离。
+     * 否则 "2024 n. 年份"、"10 n. 十" 这类以数字开头的单词会被误当序号切掉首数字。
+     */
+    private val NUM_BARE = Regex(
+        """^[$DIGITS]{1,4}\s+(?!(?:$POS_SET)\s*[\.、．\s])(?=[A-Za-z0-9])""",
         RegexOption.IGNORE_CASE
     )
 
-    private val TRAILING_POS = Regex("""\s+($POS_SET)$""", RegexOption.IGNORE_CASE)
+    /** 词头允许多词、数字与内部点号，以覆盖 "3D"、"U.S."、"Mr. Smith" 这类写法。 */
+    private val LINE_POS = Regex(
+        """^(?<word>[A-Za-z0-9][A-Za-z0-9'’.\-]*(?:\s[A-Za-z0-9'’.\-]+)*)\s+(?<pos>$POS_SET)\s*\.\s*(?<rest>\S.*)$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** 行尾词性，允许带结尾句点。 */
+    private val TRAILING_POS = Regex("""\s+($POS_SET)\.?$""", RegexOption.IGNORE_CASE)
+
+    /** 兜底分支用的纯词头形状。 */
+    private val BARE_WORD = Regex("""[A-Za-z0-9][A-Za-z0-9'’.\- ]*""")
+
+    private val MULTI_SPACE = Regex("""\s{2,}""")
 
     private fun isCjk(c: Char): Boolean =
         c in '\u4E00'..'\u9FFF' || c in '\u3400'..'\u4DBF'
@@ -39,10 +61,18 @@ object Parser {
         return WordEntry(id = UUID.randomUUID().toString(), word = w, pos = pos.trim(), meaning = m)
     }
 
+    /** 依次尝试三种序号写法，命中即剥离；都未命中时原样返回。 */
+    private fun stripIndexPrefix(line: String): String {
+        NUM_PAREN.replaceFirst(line, "").let { if (it != line) return it.trim() }
+        NUM_DOT.replaceFirst(line, "").let { if (it != line) return it.trim() }
+        NUM_BARE.replaceFirst(line, "").let { if (it != line) return it.trim() }
+        return line
+    }
+
     fun parseLine(raw: String): WordEntry? {
         var line = raw.trim()
         if (line.isEmpty()) return null
-        line = line.replace(NUM_PREFIX, "").trim()
+        line = stripIndexPrefix(line)
         if (line.isEmpty()) return null
 
         LINE_POS.find(line)?.let { m ->
@@ -53,8 +83,8 @@ object Parser {
         }
 
         // 兜底 1：按两个以上空白拆分
-        val parts = line.split(Regex("""\s{2,}""")).map { it.trim() }.filter { it.isNotEmpty() }
-        if (parts.size >= 2 && parts[0].matches(Regex("""[A-Za-z][A-Za-z'’\- ]*"""))) {
+        val parts = line.split(MULTI_SPACE).map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size >= 2 && parts[0].matches(BARE_WORD)) {
             return newEntry(parts[0], "", parts.drop(1).joinToString("  "))
         }
 

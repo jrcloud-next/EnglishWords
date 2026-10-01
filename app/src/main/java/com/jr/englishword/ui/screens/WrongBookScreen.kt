@@ -1,22 +1,26 @@
 package com.jr.englishword.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +31,7 @@ import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -59,6 +64,12 @@ import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.QuizMode
 import com.jr.englishword.data.WordEntry
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.theme.LocalAppColors
+import com.jr.englishword.ui.components.GradientHero
+import com.jr.englishword.ui.components.GradientIconChip
+import com.jr.englishword.ui.components.pressableScale
+import com.jr.englishword.ui.components.staggeredAppear
+import com.jr.englishword.ui.components.InfoPill
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -88,7 +99,9 @@ fun WrongBookScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        // 外层 Scaffold 已处理窗口 insets，内层不再重复添加
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { pad ->
     Column(Modifier.padding(pad).fillMaxSize()) {
         Row(
@@ -102,17 +115,11 @@ fun WrongBookScreen(
             }
             Text("错题本", fontSize = 19.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer
-            ) {
-                Text(
-                    "${resolved.size} 词",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            }
+            InfoPill(
+                text = "${resolved.size} 词",
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+            )
             Spacer(Modifier.weight(1f))
             if (resolved.isNotEmpty()) {
                 IconButton(onClick = { showClearDialog = true }) {
@@ -131,43 +138,59 @@ fun WrongBookScreen(
                 .padding(horizontal = 20.dp)
         ) {
             // 重练卡片
-            Card(
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            GradientHero(
+                stops = LocalAppColors.current.heroStops,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .staggeredAppear(0)
             ) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Assignment,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            Modifier
+                                .size(42.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.20f),
+                                    RoundedCornerShape(14.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.Assignment,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 "错题重练",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 if (resolved.isEmpty()) "答错的单词会自动收进错题本"
                                 else "从错题中随机抽 $roundSize 题，答对即移出错题本",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                             )
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
                     Button(
                         onClick = { onStartQuiz(selectedMode, resolved.map { it.first }) },
                         enabled = resolved.isNotEmpty(),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp),
-                        shape = RoundedCornerShape(14.dp)
+                            .heightIn(min = 46.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.onPrimary,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
                     ) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
@@ -212,13 +235,14 @@ fun WrongBookScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Rounded.Assignment,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outlineVariant,
-                            modifier = Modifier.size(48.dp)
+                        GradientIconChip(
+                            icon = Icons.Rounded.Assignment,
+                            tint = MaterialTheme.colorScheme.primary,
+                            size = 60.dp,
+                            iconSize = 30.dp,
+                            cornerRadius = 20.dp
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(14.dp))
                         Text("错题本是空的", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -248,11 +272,12 @@ fun WrongBookScreen(
                                 modifier = Modifier.padding(vertical = 4.dp)
                             )
                         }
-                        items(group, key = { it.first.id }) { (w, r) ->
+                        itemsIndexed(group, key = { _, item -> item.first.id }) { i, (w, r) ->
                             WrongWordRow(
                                 word = w,
                                 count = r.count,
                                 lastWrongAt = r.lastWrongAt,
+                                index = i,
                                 onRemove = {
                                     vm.removeWrong(w.id)
                                     scope.launch {
@@ -262,7 +287,8 @@ fun WrongBookScreen(
                                             duration = SnackbarDuration.Short
                                         )
                                         if (result == SnackbarResult.ActionPerformed) {
-                                            vm.addWrong(w.id)
+                                            // 按原值还原，不重置错误次数与最近答错时间
+                                            vm.restoreWrong(r)
                                         }
                                     }
                                 }
@@ -299,13 +325,19 @@ private fun WrongWordRow(
     word: WordEntry,
     count: Int,
     lastWrongAt: Long,
+    index: Int,
     onRemove: () -> Unit
 ) {
+    val source = remember { MutableInteractionSource() }
     Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier
+            .fillMaxWidth()
+            .staggeredAppear(index, stepMillis = 30)
+            .pressableScale(source),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             Modifier
