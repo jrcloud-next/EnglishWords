@@ -66,7 +66,7 @@
 | minSdk（最低支持） | 26（Android 8.0） |
 | versionName / versionCode | 1.1 / 2 |
 
-`gradle/wrapper` 已指向 Gradle 8.10.2，与本机构建基线一致，可直接使用 `./gradlew`；下文示例显式调用本机 Gradle 8.10.2，两者目标版本相同。构建时请指定 JDK 17。
+构建需要 **JDK 17**。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
 
 ## 编译步骤
 
@@ -77,7 +77,7 @@ git clone https://github.com/jrcloud-next/EnglishWords
 cd EnglishWords
 ```
 
-克隆后得到的目录名为 `EnglishWords`。以下命令均在包含 `settings.gradle.kts` 的项目根目录执行，并将示例中的工具路径替换为本机实际路径。
+克隆后得到的目录名为 `EnglishWords`。以下命令均在包含 `settings.gradle.kts` 的项目根目录执行，并将示例中的 JDK / SDK 路径替换为你机器上的实际路径。
 
 ### 2. 配置 Android SDK
 
@@ -93,7 +93,7 @@ Debug 编译不需要下面的 Release 密钥库和密码。
 
 ```bash
 export JAVA_HOME="/path/to/jdk-17"
-"/path/to/gradle-8.10.2/bin/gradle" :app:assembleDebug --console=plain
+./gradlew :app:assembleDebug --console=plain
 ```
 
 构建成功后的产物路径：`app/build/outputs/apk/debug/app-debug.apk`。
@@ -115,7 +115,7 @@ keyPassword=你的密钥密码
 
 ```bash
 export JAVA_HOME="/path/to/jdk-17"
-"/path/to/gradle-8.10.2/bin/gradle" :app:assembleRelease --console=plain
+./gradlew :app:assembleRelease --console=plain
 ```
 
 构建成功后的产物路径：`app/build/outputs/apk/release/app-release.apk`。Release 构建启用 R8 混淆，产物体积明显小于 Debug 包。若构建失败，请先处理错误；目录中遗留的 APK 不代表本次构建成功。
