@@ -77,8 +77,6 @@
 
 `gradle/wrapper` 已指向 Gradle 8.10.2，与本机构建基线一致，可直接使用 `./gradlew`；下文示例显式调用本机 Gradle 8.10.2，两者目标版本相同。构建时请指定 JDK 17。
 
-> 当前源码 `versionName`/`versionCode` 与 SettingsScreen「关于」文案均为 v1.1，三者一致。仅修改文档不需要递增版本号；修改应用代码后请按同一流程同步这三处。
-
 ## 编译步骤
 
 ### 1. 克隆项目
