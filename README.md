@@ -152,8 +152,6 @@ export JAVA_HOME="/path/to/jdk-17"
 sdk.dir=C:/Users/你的用户名/AppData/Local/Android/Sdk
 ```
 
-`gradlew.bat` 已随仓库提供，Windows 上无需额外安装 Gradle。
-
 ## 项目结构
 
 ```
