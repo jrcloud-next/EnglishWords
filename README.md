@@ -66,7 +66,7 @@
 | minSdk（最低支持） | 26（Android 8.0） |
 | versionName / versionCode | 1.1 / 2 |
 
-构建需要 **JDK 17**。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
+构建需要 **JDK 17**。AGP 8.7.3 不支持过新的 JDK（实测 JDK 26 会直接报错），若机器默认版本更高，请按下文示例显式把 `JAVA_HOME` 指向 17，可用 `"$JAVA_HOME/bin/java" -version` 确认。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
 
 ## 编译步骤
 
@@ -77,11 +77,11 @@ git clone https://github.com/jrcloud-next/EnglishWords
 cd EnglishWords
 ```
 
-克隆后得到的目录名为 `EnglishWords`。以下命令均在包含 `settings.gradle.kts` 的项目根目录执行，并将示例中的 JDK / SDK 路径替换为你机器上的实际路径。
+克隆后得到的目录名为 `EnglishWords`。以下命令均在包含 `settings.gradle.kts` 的项目根目录执行，并将示例中的 JDK / SDK 路径替换为你机器上的实际路径。**Windows 用户**请对照本节末尾的「Windows 差异」。
 
 ### 2. 配置 Android SDK
 
-在项目根目录创建或编辑 `local.properties`，填写已安装的 Android SDK 路径（需包含 API 35 平台）：
+在项目根目录创建或编辑 `local.properties`，填写已安装的 Android SDK 路径。该 SDK 需包含 **API 35 平台**与 **Build-Tools**（AGP 8.7.3 默认用 35.0.0）：
 
 ```properties
 sdk.dir=/path/to/android-sdk
@@ -134,6 +134,25 @@ export JAVA_HOME="/path/to/jdk-17"
 ```
 
 构建成功后的产物路径：`app/build/outputs/apk/release/app-release.apk`。Release 构建启用 R8 混淆，产物体积明显小于 Debug 包。若构建失败，请先处理错误；目录中遗留的 APK 不代表本次构建成功。
+
+### Windows 差异
+
+上面的命令是 macOS / Linux 写法，Windows 按下表替换即可：
+
+| 用途 | macOS / Linux | Windows |
+|------|---------------|---------|
+| 设置 JDK | `export JAVA_HOME="/path/to/jdk-17"` | PowerShell：`$env:JAVA_HOME="C:\path\to\jdk-17"`<br>cmd：`set JAVA_HOME=C:\path\to\jdk-17` |
+| 执行构建 | `./gradlew :app:assembleDebug` | `.\gradlew.bat :app:assembleDebug`（cmd 下写成 `gradlew.bat ...`） |
+| 创建目录 | `mkdir -p signing` | `mkdir signing`（提示已存在时可忽略） |
+| 生成密钥库 | `"$JAVA_HOME/bin/keytool" …` | `"%JAVA_HOME%\bin\keytool" …`，并把第 4 步的多行命令合并成一行 |
+
+`local.properties` 中的 SDK 路径建议用**正斜杠**：Java 的 properties 文件里反斜杠是转义符，`C:\Users\...` 会被读成 `C:Users...`。
+
+```properties
+sdk.dir=C:/Users/你的用户名/AppData/Local/Android/Sdk
+```
+
+`gradlew.bat` 已随仓库提供，Windows 上无需额外安装 Gradle。
 
 ## 项目结构
 
