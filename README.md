@@ -7,7 +7,8 @@
 ### 单词导入
 
 - **简单导入**：直接粘贴文本，支持 `1. hello  n.  你好` 格式（序号、词性可省略，支持词组，也支持 `U.S.`、`3D`、`2024` 这类词头）
-- **文件导入**：支持 TXT / DOCX 文件导入；TXT 优先识别 UTF-8，校验失败时回退 GBK，另支持带 BOM 的 UTF-16LE；DOCX 提取正文文本，不保留排版
+- **文件导入**：支持 TXT / DOCX 文件导入；TXT 带 UTF-8 / UTF-16LE BOM 时去除 BOM 并直接按对应编码解码，不再严格校验或回退；无上述 BOM 时先严格校验 UTF-8，失败则回退 GBK；DOCX 提取正文文本，不保留排版
+- 序号支持半角及全角数字，英文词头不做全角规范化；中文课名等前缀会导致解析失败，部分非中文前缀可能被算入词头，请先移除这些前缀
 - 导入前可预览解析结果；单次解析按“英文单词 + 词性”（忽略大小写）去重，保留首次出现的条目；追加导入使用同一规则与现有词库去重
 - 支持「清空现有单词及其学习记录后导入」；替换导入会整体替换词库并同时清空错题本
 
@@ -24,7 +25,8 @@
 - 每轮默认 10 题，可选 5/10/15/20，实际题数不超过可用词条数；错题重练不超过当前词库中的错词数量
 - 拼写提示保留原词大小写，判分忽略大小写及非字母数字字符
 - 结束后显示成绩和错词回顾
-- 屏幕旋转或应用被系统回收重建后，本轮题号、作答与得分会保留；错题重练在重建后仍是错题重练
+- 系统已保存并恢复 Activity 状态时，可恢复本轮题目、题号、作答、得分及错题重练题源；主动退出练习、移除最近任务或强行停止后不支持续练。保存数据受 Android Bundle 容量限制，超大释义或错题表可能无法恢复。参见 [Android 状态保存说明](https://developer.android.com/topic/libraries/architecture/saving-states)
+- 已知限制：AI 选项尚未生成时旋转屏幕或发生系统重建，未完成的生成任务不会恢复，部分题目可能一直没有选项；需退出后重新开始练习
 
 ### 错题本
 
@@ -34,16 +36,18 @@
 
 ### AI 扩展（可选）
 
-- 四选一干扰项优先由 AI 生成；题目先立即显示，选项再按题异步补齐（同时最多 4 个请求，单题最多等 10 秒）。未配置、关闭 AI、超时、请求失败或候选不足时，依次从词库和内置列表补足，因此个别题目可能用的是兜底选项
+- 四选一干扰项优先由 AI 生成；题目先立即显示，选项再按题异步补齐。未配置、关闭 AI、超时、请求失败或候选不足时，依次从词库和内置列表补足，因此个别题目可能用的是兜底选项
+- 每轮用 4 个并发许可限制选项生成任务；任务取得许可后设置 10 秒协程超时，排队时间不计入。当前同步网络请求不能随协程及时取消，因此实际等待可能超过 10 秒，这也不是全应用网络请求数量的硬上限
 - 单词详情页可查看 AI 生成的多义项和例句
-- 支持 OpenAI 兼容的 Chat Completions API；首次使用时 API 地址、模型名称和 API Key 均为空，需自行填写
+- 支持 OpenAI 兼容的 Chat Completions API；首次使用时 API 地址、模型名称和 API Key 均为空，需自行填写。地址请使用 HTTPS，并包含服务要求的基础路径（如 `/v1`）；程序只追加 `/chat/completions`，也接受已完整填写的该端点。当前配置不允许明文 HTTP，参见 [Android 网络安全配置](https://developer.android.com/privacy-and-security/security-config)
 - API 三项输入需点击“保存配置”才会更新配置；“测试连接”使用当前输入发起请求，不代替保存；AI 开关和每轮题数在更改时立即更新并触发保存
 
 ### 单词本管理
 
 - 搜索、删除、清空；单条删除可撤销，词条与删除时联动清理的错题记录会一并按原值恢复
 - 已练习词条按历史正确率显示掌握度圆点，颜色随主题变化；未练习词条不显示圆点
-- 数据文件损坏时首页会给出提示并保留原文件备份（`<文件名>.corrupt-<时间戳>`），不再静默变成空词库；保存失败也会弹出提示
+- 数据读取失败时首页会提示，本次以空词库、空错题本或默认配置启动，并尝试备份原文件为 `<文件名>.corrupt-<时间戳>`；备份失败不会单独上报，界面的“已备份”提示不保证备份成功。保存失败也会弹出提示
+- 后台保存会合并尚未处理的信号以减少重复写入；正常路径用临时文件重命名替换，失败回退可能删除旧文件，进程终止也可能丢失尚未落盘的修改
 
 ## 界面
 
@@ -66,7 +70,7 @@
 | minSdk（最低支持） | 26（Android 8.0） |
 | versionName / versionCode | 1.1 / 2 |
 
-构建需要 **JDK 17**。AGP 8.7.3 不支持过新的 JDK（实测 JDK 26 会直接报错），若机器默认版本更高，请按下文示例显式把 `JAVA_HOME` 指向 17，可用 `"$JAVA_HOME/bin/java" -version` 确认。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
+本项目的构建基线为 **JDK 17**。[AGP 8.7 最低要求 JDK 17](https://developer.android.com/build/releases/past-releases/agp-8-7-0-release-notes)，[Gradle 8.10.2 支持使用 Java 8–23 运行](https://docs.gradle.org/8.10.2/userguide/compatibility.html)，因此 JDK 26 不兼容当前 Wrapper 构建组合。若机器默认版本较新，请按下文示例显式把 `JAVA_HOME` 指向 17，可用 `"$JAVA_HOME/bin/java" -version` 确认。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
 
 ## 编译步骤
 
@@ -81,7 +85,7 @@ cd EnglishWords
 
 ### 2. 配置 Android SDK
 
-在项目根目录创建或编辑 `local.properties`，填写已安装的 Android SDK 路径。该 SDK 需包含 **API 35 平台**与 **Build-Tools**（AGP 8.7.3 默认用 35.0.0）：
+在项目根目录创建或编辑 `local.properties`，填写已安装的 Android SDK 路径。该 SDK 需包含 **API 35 平台**与 **Build-Tools 34.0.0**；项目未指定 `buildToolsVersion`，采用 [AGP 8.7 的默认版本 34.0.0](https://developer.android.com/build/releases/past-releases/agp-8-7-0-release-notes)，`compileSdk = 35` 不代表默认 Build-Tools 为 35.0.0：
 
 ```properties
 sdk.dir=/path/to/android-sdk
@@ -102,25 +106,26 @@ export JAVA_HOME="/path/to/jdk-17"
 
 Release 包必须签名。本项目的签名配置固定为：密钥库放在 `signing/release.keystore`、别名 `byjr`、密码从 `local.properties` 读取。
 
-**自己编译 Release 包**时，先生成密钥库（仓库里没有 `signing/` 目录，需要先创建）：
+**使用新签名自己编译 Release 包**时，先生成密钥库（仓库里没有 `signing/` 目录，需要先创建）。若需更新已发布的应用，使用原签名材料，跳过生成步骤：
 
 ```bash
+export JAVA_HOME="/path/to/jdk-17"
 mkdir -p signing
 "$JAVA_HOME/bin/keytool" -genkeypair -v \
   -keystore signing/release.keystore -alias byjr \
+  -storetype PKCS12 \
   -keyalg RSA -keysize 2048 -validity 10950 \
-  -storepass 你的密码 -keypass 你的密码 \
   -dname "CN=YourName, C=CN"
 ```
 
-然后在 `local.properties` 中追加两行，保留已有的 `sdk.dir`：
+按交互提示输入并确认库密码，避免把密码写进命令历史。然后在 `local.properties` 中追加两行，保留已有的 `sdk.dir`：
 
 ```properties
 storePassword=你的密码
 keyPassword=你的密码
 ```
 
-密钥库是 PKCS12 格式，库密码与密钥密码实际是同一个值，两行填一样的即可。
+以上 JDK 17 `keytool` 示例显式生成 PKCS12，并使用同一密码保护库和密钥，因此两行填相同值；已有密钥库应填写其实际库密码与密钥密码，不能仅凭 `.keystore` 扩展名推断格式或密码关系。参见 [JDK 17 keytool 说明](https://docs.oracle.com/en/java/javase/17/docs/specs/man/keytool.html)。
 
 **要覆盖安装已发布的应用**：必须改用该应用原有的密钥库与密码，否则签名不一致会安装失败。原签名材料不在本仓库中。
 
@@ -144,7 +149,9 @@ export JAVA_HOME="/path/to/jdk-17"
 | 设置 JDK | `export JAVA_HOME="/path/to/jdk-17"` | PowerShell：`$env:JAVA_HOME="C:\path\to\jdk-17"`<br>cmd：`set JAVA_HOME=C:\path\to\jdk-17` |
 | 执行构建 | `./gradlew :app:assembleDebug` | `.\gradlew.bat :app:assembleDebug`（cmd 下写成 `gradlew.bat ...`） |
 | 创建目录 | `mkdir -p signing` | `mkdir signing`（提示已存在时可忽略） |
-| 生成密钥库 | `"$JAVA_HOME/bin/keytool" …` | `"%JAVA_HOME%\bin\keytool" …`，并把第 4 步的多行命令合并成一行 |
+| 生成密钥库 | `"$JAVA_HOME/bin/keytool" …` | PowerShell：`& "$env:JAVA_HOME\bin\keytool.exe" …`<br>cmd：`"%JAVA_HOME%\bin\keytool.exe" …`；把第 4 步的参数合并成一行，密码仍按提示输入 |
+
+PowerShell 的 `&` 用于执行引号内的程序路径，后续参数放在引号外；参见 [PowerShell 调用运算符说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_operators#call-operator-)。
 
 `local.properties` 中的 SDK 路径建议用**正斜杠**：Java 的 properties 文件里反斜杠是转义符，`C:\Users\...` 会被读成 `C:Users...`。
 
@@ -162,12 +169,12 @@ app/src/main/
 │   ├── data/
 │   │   ├── Models.kt              # WordEntry / WrongRecord / AppSettings / QuizMode
 │   │   ├── Parser.kt              # 词表行解析、DOCX 正文提取、TXT 编码自适应
-│   │   └── Repository.kt          # 单例；StateFlow + JSON 持久化（合并写、原子替换、读写错误上报）
+│   │   └── Repository.kt          # 单例；StateFlow + JSON 持久化（合并写、临时文件重命名、读写错误上报）
 │   ├── net/
 │   │   └── DeepSeekApi.kt         # OpenAI 兼容 Chat Completions 客户端
 │   └── ui/
 │       ├── AppViewModel.kt        # AndroidViewModel，转发 Repository 与 AI 调用
-│       ├── QuizSession.kt         # 答题会话模型 + rememberSaveable Saver（跨旋转/重建保留本轮）
+│       ├── QuizSession.kt         # 答题会话模型 + rememberSaveable Saver（系统状态恢复时保留本轮）
 │       ├── components/
 │       │   ├── CommonUi.kt        # IconChip / GradientIconChip / InfoPill / SectionCardHeader
 │       │   └── Effects.kt         # GradientHero / CircularRingProgress / GradientBar / AnimatedCounter 等动效组件
