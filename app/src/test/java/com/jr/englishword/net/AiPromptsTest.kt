@@ -1,0 +1,75 @@
+package com.jr.englishword.net
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Test
+
+class AiPromptsTest {
+    @Test
+    fun distractorSystemStaysIdenticalAcrossWordsAndDirections() {
+        val englishToChinese = distractorPrompt("apple", "n.", "苹果", true)
+        val chineseToEnglish = distractorPrompt("develop", "v.", "发展", false)
+
+        assertEquals(englishToChinese.system, chineseToEnglish.system)
+        assertNotEquals(englishToChinese.user, chineseToEnglish.user)
+        assertFalse(englishToChinese.system.contains("apple"))
+        assertFalse(englishToChinese.system.contains("苹果"))
+        assertFalse(chineseToEnglish.system.contains("develop"))
+        assertFalse(chineseToEnglish.system.contains("发展"))
+    }
+
+    @Test
+    fun chineseToEnglishUsesRealMeaningAndPartOfSpeech() {
+        val data = Json.parseToJsonElement(
+            distractorPrompt("record", "v.", "记录；记载", false).user
+        ).jsonObject
+
+        assertEquals(listOf("direction", "word", "pos", "meaning"), data.keys.toList())
+        assertEquals("CN_EN", data.getValue("direction").jsonPrimitive.content)
+        assertEquals("record", data.getValue("word").jsonPrimitive.content)
+        assertEquals("v.", data.getValue("pos").jsonPrimitive.content)
+        assertEquals("记录；记载", data.getValue("meaning").jsonPrimitive.content)
+    }
+
+    @Test
+    fun englishToChineseKeepsDirectionAndEscapesDynamicData() {
+        val word = "a\"b\\c\nword"
+        val pos = "n.\t/ v."
+        val meaning = "他说\"你好\"；路径\\目录\n下一行"
+        val data = Json.parseToJsonElement(distractorPrompt(word, pos, meaning, true).user).jsonObject
+
+        assertEquals("EN_CN", data.getValue("direction").jsonPrimitive.content)
+        assertEquals(word, data.getValue("word").jsonPrimitive.content)
+        assertEquals(pos, data.getValue("pos").jsonPrimitive.content)
+        assertEquals(meaning, data.getValue("meaning").jsonPrimitive.content)
+    }
+
+    @Test
+    fun wordInfoHasItsOwnStableSystemAndEscapedInput() {
+        val first = wordInfoPrompt("Mr. \"Smith\"\\\n", "n.\t")
+        val second = wordInfoPrompt("develop", "v.")
+        val data = Json.parseToJsonElement(first.user).jsonObject
+
+        assertEquals(first.system, second.system)
+        assertNotEquals(first.system, distractorPrompt("apple", "n.", "苹果", true).system)
+        assertFalse(first.system.contains("Smith"))
+        assertEquals(listOf("word", "pos"), data.keys.toList())
+        assertEquals("Mr. \"Smith\"\\\n", data.getValue("word").jsonPrimitive.content)
+        assertEquals("n.\t", data.getValue("pos").jsonPrimitive.content)
+    }
+
+    @Test
+    fun optionalPartOfSpeechIsStillPresentWhenEmpty() {
+        val distractorData = Json.parseToJsonElement(
+            distractorPrompt("ice cream", "", "冰淇淋", true).user
+        ).jsonObject
+        val infoData = Json.parseToJsonElement(wordInfoPrompt("ice cream", "").user).jsonObject
+
+        assertEquals("", distractorData.getValue("pos").jsonPrimitive.content)
+        assertEquals("", infoData.getValue("pos").jsonPrimitive.content)
+    }
+}

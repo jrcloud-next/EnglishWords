@@ -46,7 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.QuizMode
-import com.jr.englishword.net.DeepSeekApi
+import com.jr.englishword.net.Api
 import com.jr.englishword.ui.AppViewModel
 import com.jr.englishword.ui.components.AnimatedCounter
 import com.jr.englishword.ui.components.GradientHero
@@ -83,7 +83,7 @@ fun HomeScreen(
     val mastered = words.count { it.practiced > 0 && it.mastery >= 0.75f }
     val wordIds = words.mapTo(HashSet()) { it.id }
     val wrongCount = wrongRecords.count { it.wordId in wordIds }
-    val isAiConfigured = DeepSeekApi.isReady(settings)
+    val isAiConfigured = Api.isReady(settings)
 
     Column(
         Modifier

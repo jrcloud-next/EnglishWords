@@ -6,7 +6,8 @@ import com.jr.englishword.data.AppSettings
 import com.jr.englishword.data.Repository
 import com.jr.englishword.data.WordEntry
 import com.jr.englishword.data.WrongRecord
-import com.jr.englishword.net.DeepSeekApi
+import com.jr.englishword.net.AiUsageSnapshot
+import com.jr.englishword.net.Api
 import kotlinx.coroutines.flow.StateFlow
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -16,6 +17,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val words: StateFlow<List<WordEntry>> = repo.words
     val settings: StateFlow<AppSettings> = repo.settings
     val wrong: StateFlow<List<WrongRecord>> = repo.wrong
+
+    /** 最近一次成功 AI 业务请求的用量，仅在当前应用进程内保留。 */
+    val lastBusinessUsage: StateFlow<AiUsageSnapshot?> = Api.lastBusinessUsage
 
     /** 词库/设置/错题本读取失败提示；null 表示正常。 */
     val loadError: StateFlow<String?> = repo.loadError
@@ -48,14 +52,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun clearSaveError() = repo.clearSaveError()
 
     suspend fun aiDistractors(word: WordEntry, chinese: Boolean): List<String> =
-        DeepSeekApi.aiDistractors(
+        Api.aiDistractors(
             settings.value,
             word.word,
             word.pos,
-            if (chinese) word.meaning else word.word,
+            word.meaning,
             chinese
         )
 
-    suspend fun moreInfo(word: WordEntry): DeepSeekApi.AiInfoResult =
-        DeepSeekApi.moreInfo(settings.value, word.word, word.pos)
+    suspend fun moreInfo(word: WordEntry): Api.AiInfoResult =
+        Api.moreInfo(settings.value, word.word, word.pos)
 }

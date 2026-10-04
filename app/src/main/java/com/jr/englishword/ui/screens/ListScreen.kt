@@ -61,7 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.WordEntry
-import com.jr.englishword.net.DeepSeekApi
+import com.jr.englishword.net.Api
 import com.jr.englishword.ui.AppViewModel
 import com.jr.englishword.ui.components.GradientIconChip
 import com.jr.englishword.ui.components.pressableScale
@@ -337,7 +337,7 @@ private fun WordDetailDialog(
     onDismiss: () -> Unit
 ) {
     var aiLoading by remember(word.id) { mutableStateOf(false) }
-    var aiResult by remember(word.id) { mutableStateOf<DeepSeekApi.AiWordInfo?>(null) }
+    var aiResult by remember(word.id) { mutableStateOf<Api.AiWordInfo?>(null) }
     var aiError by remember(word.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -372,8 +372,8 @@ private fun WordDetailDialog(
                                 aiError = null
                                 scope.launch {
                                     when (val r = vm.moreInfo(word)) {
-                                        is DeepSeekApi.AiInfoResult.Ok -> aiResult = r.info
-                                        is DeepSeekApi.AiInfoResult.Err -> aiError = r.message
+                                        is Api.AiInfoResult.Ok -> aiResult = r.info
+                                        is Api.AiInfoResult.Err -> aiError = r.message
                                     }
                                     aiLoading = false
                                 }

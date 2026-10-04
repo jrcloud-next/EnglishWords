@@ -2,9 +2,12 @@ package com.jr.englishword.net
 
 import com.jr.englishword.data.AppSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -20,8 +23,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 
-/** OpenAI 兼容 Chat Completions 客户端（默认 DeepSeek），并提供 AI 扩展能力。 */
-object DeepSeekApi {
+/** OpenAI 兼容 Chat Completions 客户端，并提供 AI 扩展能力。 */
+object Api {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -34,6 +37,9 @@ object DeepSeekApi {
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    private val _lastBusinessUsage = MutableStateFlow<AiUsageSnapshot?>(null)
+    val lastBusinessUsage: StateFlow<AiUsageSnapshot?> = _lastBusinessUsage.asStateFlow()
 
     fun endpoint(baseUrl: String): String {
         var b = baseUrl.trim()
@@ -51,7 +57,7 @@ object DeepSeekApi {
         settings.apiEnabled && isConfigured(settings)
 
     sealed class ApiResult {
-        data class Ok(val content: String, val latencyMs: Long) : ApiResult()
+        data class Ok(val content: String, val latencyMs: Long, val usage: AiUsage? = null) : ApiResult()
         data class Err(val message: String) : ApiResult()
     }
 
@@ -75,7 +81,8 @@ object DeepSeekApi {
         system: String,
         user: String,
         maxTokens: Int = 800,
-        temperature: Double = 0.8
+        temperature: Double = 0.8,
+        task: AiTask? = null
     ): ApiResult = withContext(Dispatchers.IO) {
         if (!isConfigured(settings)) {
             return@withContext ApiResult.Err("请先在设置中配置 API 地址、模型名称和 API Key")
@@ -112,13 +119,27 @@ object DeepSeekApi {
                     }.getOrNull()
                     return@withContext ApiResult.Err("HTTP ${resp.code}${errMsg?.let { "：$it" } ?: ""}")
                 }
+                val response = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
                 val content = runCatching {
-                    json.parseToJsonElement(text).jsonObject["choices"]?.jsonArray
+                    response?.get("choices")?.jsonArray
                         ?.firstOrNull()?.jsonObject?.get("message")
                         ?.jsonObject?.get("content")?.jsonPrimitive?.content
                 }.getOrNull()
-                if (content.isNullOrBlank()) ApiResult.Err("接口返回内容为空")
-                else ApiResult.Ok(content, System.currentTimeMillis() - started)
+                if (content.isNullOrBlank()) {
+                    ApiResult.Err("接口返回内容为空")
+                } else {
+                    val usage = parseAiUsage(response)
+                    val completedAtMs = System.currentTimeMillis()
+                    if (task != null) {
+                        val snapshot = AiUsageSnapshot(task, req.url.host, settings.model, completedAtMs, usage)
+                        // 并发响应可能交错发布，避免较早完成的响应覆盖更新的统计。
+                        _lastBusinessUsage.update { previous ->
+                            if (previous == null || snapshot.completedAtMs >= previous.completedAtMs) snapshot
+                            else previous
+                        }
+                    }
+                    ApiResult.Ok(content, completedAtMs - started, usage)
+                }
             }
         } catch (e: CancellationException) {
             // 协程取消必须向上传播，不能被当成普通网络错误吞掉
@@ -142,88 +163,37 @@ object DeepSeekApi {
         settings: AppSettings,
         word: String,
         pos: String,
-        correct: String,
+        meaning: String,
         chinese: Boolean
     ): List<String> {
         if (!isReady(settings)) return emptyList()
-        val withPos = if (pos.isNotBlank()) "$word ($pos)" else word
-        val user = if (chinese) {
-            "英语单词「$withPos」的正确中文释义是「$correct」。请生成3个错误的中文释义作为四选一选择题的干扰项。" +
-                "要求：词性与正确释义一致、长度相近、但含义明显不同。只输出JSON数组，" +
-                "格式如 [\"干扰项1\",\"干扰项2\",\"干扰项3\"]，不要输出其他任何内容。"
-        } else {
-            "中文释义「$correct」对应的英文单词是「${word.trim()}」。请生成3个错误的英文单词作为四选一选择题的干扰项。" +
-                "要求：与正确单词词性相同、长度或拼写有一定相似、但含义不同且真实存在。只输出JSON数组，" +
-                "格式如 [\"word1\",\"word2\",\"word3\"]，不要输出其他任何内容。"
-        }
+        val prompt = distractorPrompt(word, pos, meaning, chinese)
         val r = chat(
             settings,
-            system = "你是一名英语词汇老师，为选择题生成干扰项。只输出JSON，不要任何解释。",
-            user = user,
+            system = prompt.system,
+            user = prompt.user,
             maxTokens = 1024,
-            temperature = 0.9
+            temperature = 0.9,
+            task = if (chinese) AiTask.EN_CN else AiTask.CN_EN
         )
         if (r !is ApiResult.Ok) return emptyList()
-        val list = extractJsonArray(r.content)
-        val normCorrect = normalize(correct)
-        return list.filter { it.isNotBlank() && normalize(it) != normCorrect }
-            .distinctBy { normalize(it) }
-            .take(3)
-    }
-
-    private fun normalize(s: String): String =
-        s.lowercase().filter { it.isLetterOrDigit() }
-
-    private fun extractJsonArray(content: String): List<String> {
-        var s = content.trim()
-        if (s.startsWith("```")) {
-            s = s.removePrefix("```json").removePrefix("```JSON").removePrefix("```")
-            s = s.removeSuffix("```").trim()
-        }
-        val start = s.indexOf('[')
-        val end = s.lastIndexOf(']')
-        if (start < 0 || end <= start) return emptyList()
-        return runCatching {
-            json.parseToJsonElement(s.substring(start, end + 1))
-                .jsonArray.map { it.jsonPrimitive.content }
-        }.getOrDefault(emptyList())
+        return parseDistractors(r.content, if (chinese) meaning else word)
     }
 
     /** 获取某单词的 AI 详细释义（多义项 + 例句）。 */
     suspend fun moreInfo(settings: AppSettings, word: String, pos: String): AiInfoResult {
-        val withPos = if (pos.isNotBlank()) "$word ($pos)" else word
-        val user = "请像权威英汉词典一样，给出英语单词「$withPos」的详细信息：" +
-            "senses 为该词所有常见义项（pos 为词性如 n./v./adj.，meaning 为简明中文释义，最多5条）；" +
-            "example 为一句常用英文例句，exampleCn 为其对应中文翻译。" +
-            "只输出JSON：{\"senses\":[{\"pos\":\"n.\",\"meaning\":\"...\"}],\"example\":\"...\",\"exampleCn\":\"...\"}"
+        val prompt = wordInfoPrompt(word, pos)
         val r = chat(
             settings,
-            system = "你是权威英汉词典，只输出JSON，不要任何解释和多余文本。",
-            user = user,
+            system = prompt.system,
+            user = prompt.user,
             maxTokens = 2048,
-            temperature = 0.3
+            temperature = 0.3,
+            task = AiTask.WORD_INFO
         )
         return when (r) {
             is ApiResult.Err -> AiInfoResult.Err(r.message)
-            is ApiResult.Ok -> {
-                var s = r.content.trim()
-                if (s.startsWith("```")) {
-                    s = s.removePrefix("```json").removePrefix("```JSON").removePrefix("```")
-                    s = s.removeSuffix("```").trim()
-                }
-                val start = s.indexOf('{')
-                val end = s.lastIndexOf('}')
-                if (start < 0 || end <= start) {
-                    AiInfoResult.Err("AI 返回格式无法解析")
-                } else {
-                    runCatching {
-                        json.decodeFromString<AiWordInfo>(s.substring(start, end + 1))
-                    }.fold(
-                        onSuccess = { AiInfoResult.Ok(it) },
-                        onFailure = { AiInfoResult.Err("AI 返回格式无法解析：${it.message}") }
-                    )
-                }
-            }
+            is ApiResult.Ok -> parseWordInfo(r.content)
         }
     }
 }

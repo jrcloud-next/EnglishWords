@@ -54,14 +54,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.AppSettings
-import com.jr.englishword.net.DeepSeekApi
+import com.jr.englishword.net.AiUsageSnapshot
+import com.jr.englishword.net.Api
 import com.jr.englishword.ui.AppViewModel
 import com.jr.englishword.ui.components.SectionCardHeader
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
+    val lastBusinessUsage by vm.lastBusinessUsage.collectAsState()
     val scope = rememberCoroutineScope()
 
     var baseUrl by rememberSaveable { mutableStateOf(settings.baseUrl) }
@@ -204,9 +209,9 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                                         model = model.trim(),
                                         apiKey = apiKey.trim()
                                     )
-                                    testResult = when (val r = DeepSeekApi.testConnection(testSettings)) {
-                                        is DeepSeekApi.ApiResult.Ok -> "✓ 连接成功（${r.latencyMs} ms）"
-                                        is DeepSeekApi.ApiResult.Err -> "✗ ${r.message}"
+                                    testResult = when (val r = Api.testConnection(testSettings)) {
+                                        is Api.ApiResult.Ok -> "✓ 连接成功（${r.latencyMs} ms）"
+                                        is Api.ApiResult.Err -> "✗ ${r.message}"
                                     }
                                     testing = false
                                 }
@@ -255,6 +260,10 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                             else MaterialTheme.colorScheme.error
                         )
                     }
+                    Spacer(Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(14.dp))
+                    RecentAiUsage(lastBusinessUsage)
                 }
             }
 
@@ -313,7 +322,7 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "英语单词·By JR v1.1\n支持 TXT / DOCX 词表导入，提供英译中、中译英、默写中文、拼写英文四种记忆模式，内置错题本，并可通过 AI 接口生成选择题干扰项与详细释义。",
+                        "英语单词·By JR v1.2\n支持 TXT / DOCX 词表导入，提供英译中、中译英、默写中文、拼写英文四种记忆模式，内置错题本，并可通过 AI 接口生成选择题干扰项与详细释义。",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
@@ -324,3 +333,62 @@ fun SettingsScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit
         }
     }
 }
+
+@Composable
+private fun RecentAiUsage(snapshot: AiUsageSnapshot?) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "最近一次 AI 请求",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            "仅统计最近一次成功的业务请求，记录在本次应用进程内保留；“测试连接”不计入。",
+            modifier = Modifier.fillMaxWidth(),
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (snapshot == null) {
+            Text(
+                "暂无请求记录",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            val completedAt = remember(snapshot.completedAtMs) {
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    .format(Date(snapshot.completedAtMs))
+            }
+            val usage = snapshot.usage
+            val hitRate = usage?.cacheHitRate?.let {
+                String.format(Locale.getDefault(), "%.1f%%", it * 100.0)
+            } ?: "服务未提供"
+            listOf(
+                "任务：${snapshot.task.displayName}",
+                "服务域名：${snapshot.serviceHost.ifBlank { "服务未提供" }}",
+                "模型：${snapshot.model.ifBlank { "服务未提供" }}",
+                "完成时间：$completedAt",
+                "输入 token：${tokenCount(usage?.promptTokens)}",
+                "输出 token：${tokenCount(usage?.completionTokens)}",
+                "缓存命中 token：${tokenCount(usage?.cacheHitTokens)}",
+                "缓存未命中 token：${tokenCount(usage?.cacheMissTokens)}",
+                "本次输入缓存命中率：$hitRate"
+            ).forEach { statistic ->
+                Text(
+                    statistic,
+                    modifier = Modifier.fillMaxWidth(),
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+private fun tokenCount(value: Long?): String = value?.toString() ?: "服务未提供"

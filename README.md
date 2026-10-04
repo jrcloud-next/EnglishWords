@@ -39,6 +39,9 @@
 - 四选一干扰项优先由 AI 生成；题目先立即显示，选项再按题异步补齐。未配置、关闭 AI、超时、请求失败或候选不足时，依次从词库和内置列表补足，因此个别题目可能用的是兜底选项
 - 每轮用 4 个并发许可限制选项生成任务；任务取得许可后设置 10 秒协程超时，排队时间不计入。当前同步网络请求不能随协程及时取消，因此实际等待可能超过 10 秒，这也不是全应用网络请求数量的硬上限
 - 单词详情页可查看 AI 生成的多义项和例句
+- AI 提示词将输出格式、生成要求等有效固定规则放在前面，当前词条放在末尾，便于同类请求复用前缀；英译中和中译英干扰项都使用词表中的真实中文释义
+- 设置页可查看最近一次成功 AI 业务响应的任务、服务域名、模型、完成时间、输入/输出 token、缓存命中/未命中 token 与命中率；这些统计只保留在内存中，应用进程重启后清除。“测试连接”保持原有的耗时与成功/失败提示，不计入业务统计；服务未返回某项计数时显示“服务未提供”，与明确返回的 `0` 区分
+- 前缀复用不保证缓存命中：首批请求可能尚未建立缓存，服务端也可能不缓存或清理缓存，命中数可以为 `0`；应用不会为了缓存额外填长提示词。参见 [DeepSeek 上下文缓存说明](https://api-docs.deepseek.com/guides/kv_cache)
 - 支持 OpenAI 兼容的 Chat Completions API；首次使用时 API 地址、模型名称和 API Key 均为空，需自行填写。地址请使用 HTTPS，并包含服务要求的基础路径（如 `/v1`）；程序只追加 `/chat/completions`，也接受已完整填写的该端点。当前配置不允许明文 HTTP，参见 [Android 网络安全配置](https://developer.android.com/privacy-and-security/security-config)
 - API 三项输入需点击“保存配置”才会更新配置；“测试连接”使用当前输入发起请求，不代替保存；AI 开关和每轮题数在更改时立即更新并触发保存
 
@@ -68,7 +71,7 @@
 | Compose BOM | 2024.10.01 |
 | compileSdk | 35 |
 | minSdk（最低支持） | 26（Android 8.0） |
-| versionName / versionCode | 1.1 / 2 |
+| versionName / versionCode | 1.2 / 3 |
 
 本项目的构建基线为 **JDK 17**。[AGP 8.7 最低要求 JDK 17](https://developer.android.com/build/releases/past-releases/agp-8-7-0-release-notes)，[Gradle 8.10.2 支持使用 Java 8–23 运行](https://docs.gradle.org/8.10.2/userguide/compatibility.html)，因此 JDK 26 不兼容当前 Wrapper 构建组合。若机器默认版本较新，请按下文示例显式把 `JAVA_HOME` 指向 17，可用 `"$JAVA_HOME/bin/java" -version` 确认。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
 
@@ -171,7 +174,10 @@ app/src/main/
 │   │   ├── Parser.kt              # 词表行解析、DOCX 正文提取、TXT 编码自适应
 │   │   └── Repository.kt          # 单例；StateFlow + JSON 持久化（合并写、临时文件重命名、读写错误上报）
 │   ├── net/
-│   │   └── DeepSeekApi.kt         # OpenAI 兼容 Chat Completions 客户端
+│   │   ├── Api.kt                 # OpenAI 兼容 Chat Completions 客户端
+│   │   ├── AiPrompts.kt           # 固定规则前缀与动态词条 JSON
+│   │   ├── AiResponseParsing.kt   # 干扰项数组和详细释义对象解析
+│   │   └── AiUsage.kt             # 服务端用量与缓存统计、内存诊断快照
 │   └── ui/
 │       ├── AppViewModel.kt        # AndroidViewModel，转发 Repository 与 AI 调用
 │       ├── QuizSession.kt         # 答题会话模型 + rememberSaveable Saver（系统状态恢复时保留本轮）
