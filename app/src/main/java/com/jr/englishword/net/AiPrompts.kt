@@ -12,7 +12,12 @@ private const val DISTRACTOR_SYSTEM =
         "direction为CN_EN时，生成3个错误的英文单词：与word词性相同、长度或拼写有一定相似，" +
         "但含义不同且真实存在。干扰项不得与正确答案相同，也不得重复。" +
         "只输出包含3个字符串的JSON数组，格式如[\"...\",\"...\",\"...\"]，" +
-        "不要输出解释、Markdown代码围栏或其他任何内容。"
+        "不要输出解释、Markdown代码围栏或其他任何内容。" +
+        "\n\n示例仅演示题型和JSON格式；只回答当前输入。" +
+        "\n输入：{\"direction\":\"EN_CN\",\"word\":\"absorb\",\"pos\":\"v.\",\"meaning\":\"吸收\"}" +
+        "\n输出：[\"折叠\",\"测量\",\"安装\"]" +
+        "\n输入：{\"direction\":\"CN_EN\",\"word\":\"gather\",\"pos\":\"v.\",\"meaning\":\"聚集\"}" +
+        "\n输出：[\"wander\",\"scatter\",\"matter\"]"
 
 private const val WORD_INFO_SYSTEM =
     "你是权威英汉词典，根据用户JSON中的word（英文词头）和pos（词性）提供详细信息。" +

@@ -9,13 +9,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -89,24 +85,12 @@ object Api {
         }
         val started = System.currentTimeMillis()
         try {
-            val body = buildJsonObject {
-                put("model", settings.model.ifBlank { "deepseek-chat" })
-                put("stream", false)
-                put("temperature", temperature)
-                put("max_tokens", maxTokens)
-                put("messages", buildJsonArray {
-                    add(buildJsonObject {
-                        put("role", "system")
-                        put("content", system)
-                    })
-                    add(buildJsonObject {
-                        put("role", "user")
-                        put("content", user)
-                    })
-                })
-            }
+            val endpointUrl = endpoint(settings.baseUrl)
+            val body = buildChatRequestBody(
+                endpointUrl, settings.model, system, user, maxTokens, temperature, task
+            )
             val req = Request.Builder()
-                .url(endpoint(settings.baseUrl))
+                .url(endpointUrl)
                 .header("Authorization", "Bearer ${settings.apiKey.trim()}")
                 .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
