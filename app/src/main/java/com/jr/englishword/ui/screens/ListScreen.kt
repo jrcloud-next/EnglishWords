@@ -6,12 +6,17 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,33 +24,38 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBackIosNew
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -63,10 +73,15 @@ import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.WordEntry
 import com.jr.englishword.net.Api
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.components.AlphabetSectionHeader
+import com.jr.englishword.ui.components.EditorialSnackbarHost
+import com.jr.englishword.ui.components.EditorialTopBar
 import com.jr.englishword.ui.components.GradientIconChip
+import com.jr.englishword.ui.components.InfoPill
+import com.jr.englishword.ui.components.PosBadge
 import com.jr.englishword.ui.components.pressableScale
 import com.jr.englishword.ui.components.staggeredAppear
-import com.jr.englishword.ui.components.InfoPill
+import com.jr.englishword.ui.theme.EditorialSerif
 import kotlinx.coroutines.launch
 
 @Composable
@@ -111,38 +126,41 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        // 外层 Scaffold 已处理窗口 insets，内层不再重复添加
+        snackbarHost = { EditorialSnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "返回", modifier = Modifier.size(18.dp))
-                }
-                Text("单词本", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
-                InfoPill(
-                    text = "${words.size} 词",
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Spacer(Modifier.weight(1f))
-                if (words.isNotEmpty()) {
-                    IconButton(onClick = { showClearDialog = true }) {
-                        Icon(
-                            Icons.Rounded.DeleteSweep,
-                            contentDescription = "清空",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+            EditorialTopBar(
+                title = "单词本",
+                onBack = onBack,
+                badge = {
+                    InfoPill(
+                        text = "${words.size} 词",
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                },
+                trailing = {
+                    if (words.isNotEmpty()) {
+                        Surface(
+                            onClick = { showClearDialog = true },
+                            modifier = Modifier.size(38.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Rounded.DeleteSweep,
+                                    contentDescription = "清空",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
                     }
                 }
-            }
+            )
 
             OutlinedTextField(
                 value = query,
@@ -150,8 +168,15 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                placeholder = { Text("搜索单词 / 释义") },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                placeholder = { Text("搜索单词、词性或释义", fontSize = 14.sp) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(19.dp)
+                    )
+                },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { query = "" }) {
@@ -160,64 +185,76 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
                     }
                 },
                 singleLine = true,
-                shape = MaterialTheme.shapes.large
+                shape = MaterialTheme.shapes.large,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                )
             )
             Spacer(Modifier.height(10.dp))
 
-            if (words.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            when {
+                words.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         GradientIconChip(
-                            icon = Icons.Rounded.MenuBook,
+                            icon = Icons.AutoMirrored.Rounded.MenuBook,
                             tint = MaterialTheme.colorScheme.primary,
-                            size = 60.dp,
-                            iconSize = 30.dp,
-                            cornerRadius = 20.dp
+                            size = 56.dp,
+                            iconSize = 28.dp,
+                            cornerRadius = 17.dp
                         )
                         Spacer(Modifier.height(14.dp))
-                        Text("词库为空", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Spacer(Modifier.height(6.dp))
+                        Text("词库为空", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                        Spacer(Modifier.height(5.dp))
                         Text(
-                            "先去「导入单词」添加一些单词吧",
+                            text = "先去「导入单词」添加一些单词吧",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            } else {
-                // 按首字母分组排序
-                val groupedWords = filtered
-                    .sortedBy { it.word.lowercase() }
-                    .groupBy { it.word.firstOrNull()?.uppercase() ?: "#" }
+                filtered.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        GradientIconChip(
+                            icon = Icons.Rounded.Search,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            size = 52.dp,
+                            iconSize = 24.dp,
+                            cornerRadius = 16.dp
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("未找到匹配的单词", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "请尝试更换关键词或清除搜索条件",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                else -> {
+                    val groupedWords = filtered
+                        .sortedBy { it.word.lowercase() }
+                        .groupBy { it.word.firstOrNull()?.uppercase() ?: "#" }
 
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    groupedWords.forEach { (letter, wordsInGroup) ->
-                        // 首字母标签
-                        item(key = "header_$letter") {
-                            Column(Modifier.padding(top = 10.dp, bottom = 4.dp)) {
-                                InfoPill(
-                                    text = letter,
-                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                    contentColor = MaterialTheme.colorScheme.primary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        groupedWords.forEach { (letter, wordsInGroup) ->
+                            item(key = "header_$letter") {
+                                AlphabetSectionHeader(letter = letter, count = wordsInGroup.size)
                             }
-                        }
-                        // 该字母下的单词
-                        itemsIndexed(wordsInGroup, key = { _, w -> w.id }) { i, w ->
-                            WordRow(
-                                word = w,
-                                index = i,
-                                onDelete = { deleteWord(w) },
-                                onClick = { detailWord = w }
-                            )
+                            itemsIndexed(wordsInGroup, key = { _, w -> w.id }) { i, w ->
+                                WordRow(
+                                    word = w,
+                                    index = i,
+                                    onDelete = { deleteWord(w) },
+                                    onClick = { detailWord = w }
+                                )
+                            }
                         }
                     }
                 }
@@ -228,7 +265,8 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("清空词库") },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+            title = { Text("清空词库", fontWeight = FontWeight.Bold) },
             text = { Text("将删除全部 ${words.size} 个单词及其学习记录，且无法恢复。确定继续吗？") },
             confirmButton = {
                 TextButton(onClick = {
@@ -245,7 +283,7 @@ fun ListScreen(vm: AppViewModel, toast: (String) -> Unit, onBack: () -> Unit) {
     }
 
     detailWord?.let { w ->
-        WordDetailDialog(
+        WordDetailSheet(
             word = w,
             apiEnabled = settings.apiEnabled,
             vm = vm,
@@ -267,7 +305,7 @@ private fun WordRow(
         interactionSource = source,
         modifier = Modifier
             .fillMaxWidth()
-            .staggeredAppear(index, stepMillis = 30)
+            .staggeredAppear(index, stepMillis = 25)
             .pressableScale(source),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
@@ -277,26 +315,27 @@ private fun WordRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(start = 16.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        word.word,
+                        text = word.word,
+                        fontFamily = EditorialSerif,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     if (word.pos.isNotBlank()) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(word.pos, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(7.dp))
+                        PosBadge(pos = word.pos, fontSize = 11.sp)
                     }
                     if (word.practiced > 0) {
                         Spacer(Modifier.width(8.dp))
                         Box(
                             Modifier
-                                .size(8.dp)
+                                .size(7.dp)
                                 .background(
                                     when {
                                         word.mastery >= 0.75f -> MaterialTheme.colorScheme.secondary
@@ -305,12 +344,12 @@ private fun WordRow(
                                     },
                                     CircleShape
                                 )
-                            )
+                        )
                     }
                 }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    word.meaning,
+                    text = word.meaning,
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -321,16 +360,17 @@ private fun WordRow(
                 Icon(
                     Icons.Rounded.Delete,
                     contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.size(19.dp)
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WordDetailDialog(
+private fun WordDetailSheet(
     word: WordEntry,
     apiEnabled: Boolean,
     vm: AppViewModel,
@@ -340,91 +380,216 @@ private fun WordDetailDialog(
     var aiResult by remember(word.id) { mutableStateOf<Api.AiWordInfo?>(null) }
     var aiError by remember(word.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    AlertDialog(
+    fun fetchAiInfo() {
+        aiLoading = true
+        aiError = null
+        scope.launch {
+            when (val r = vm.moreInfo(word)) {
+                is Api.AiInfoResult.Ok -> aiResult = r.info
+                is Api.AiInfoResult.Err -> aiError = r.message
+            }
+            aiLoading = false
+        }
+    }
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(word.word, fontWeight = FontWeight.Bold)
-                if (word.pos.isNotBlank()) {
-                    Text(word.pos, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = word.word,
+                    fontFamily = EditorialSerif,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                if (word.practiced > 0) {
+                    val masteryPct = (word.mastery * 100).toInt()
+                    InfoPill(
+                        text = "练习 ${word.practiced} 次 · $masteryPct%",
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-        },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(word.meaning, fontSize = 15.sp)
-                Spacer(Modifier.height(14.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(Modifier.height(14.dp))
+            if (word.pos.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                PosBadge(pos = word.pos, fontSize = 13.sp)
+            }
 
-                if (!apiEnabled) {
-                    Text(
-                        "可在「设置」中开启 AI 扩展功能，查看该词的更多义项和例句。",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    if (aiResult == null && !aiLoading && aiError == null) {
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Text(
+                    text = word.meaning,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    fontSize = 15.sp,
+                    lineHeight = 23.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Spacer(Modifier.height(18.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(16.dp))
+
+            if (!apiEnabled) {
+                Text(
+                    text = "可在「设置」中开启 AI 扩展功能，查看该词的更多义项和例句。",
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                if (aiLoading) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = "正在生成详细释义与例句…",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                aiError?.let { err ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Text(
+                            text = "请求失败：$err",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
+                if (aiResult == null && !aiLoading) {
+                    if (aiError == null) {
                         Button(
-                            onClick = {
-                                aiLoading = true
-                                aiError = null
-                                scope.launch {
-                                    when (val r = vm.moreInfo(word)) {
-                                        is Api.AiInfoResult.Ok -> aiResult = r.info
-                                        is Api.AiInfoResult.Err -> aiError = r.message
-                                    }
-                                    aiLoading = false
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { fetchAiInfo() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
                             shape = MaterialTheme.shapes.medium
                         ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("AI 更多释义")
                         }
-                    }
-                    if (aiLoading) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Text("正在请求 AI…", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        OutlinedButton(
+                            onClick = { fetchAiInfo() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 46.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("重试 AI 释义")
                         }
                     }
-                    aiError?.let { err ->
-                        Text("请求失败：$err", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
-                    }
-                    aiResult?.let { info ->
-                        if (info.senses.isNotEmpty()) {
-                            Text("更多义项", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Spacer(Modifier.height(6.dp))
-                            info.senses.forEach { s ->
-                                Row(Modifier.padding(vertical = 2.dp)) {
-                                    Text(
-                                        if (s.pos.isNotBlank()) "${s.pos} " else "",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(s.meaning, fontSize = 14.sp)
+                }
+
+                aiResult?.let { info ->
+                    if (info.senses.isNotEmpty()) {
+                        Text(
+                            text = "更多义项",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        info.senses.forEachIndexed { idx, s ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${idx + 1}.",
+                                    fontFamily = EditorialSerif,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(20.dp)
+                                )
+                                if (s.pos.isNotBlank()) {
+                                    PosBadge(pos = s.pos, fontSize = 11.sp)
+                                    Spacer(Modifier.width(8.dp))
                                 }
+                                Text(
+                                    text = s.meaning,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
-                        if (info.example.isNotBlank()) {
-                            Spacer(Modifier.height(12.dp))
-                            Surface(
-                                shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.surfaceVariant
+                    }
+                    if (info.example.isNotBlank()) {
+                        Spacer(Modifier.height(14.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow
+                        ) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
+                                    .padding(14.dp)
                             ) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text(info.example, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Box(
+                                    Modifier
+                                        .width(2.5.dp)
+                                        .fillMaxHeight()
+                                        .background(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                            CircleShape
+                                        )
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = info.example,
+                                        fontFamily = EditorialSerif,
+                                        fontSize = 14.sp,
+                                        lineHeight = 21.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                     if (info.exampleCn.isNotBlank()) {
-                                        Spacer(Modifier.height(4.dp))
+                                        Spacer(Modifier.height(5.dp))
                                         Text(
-                                            info.exampleCn,
+                                            text = info.exampleCn,
                                             fontSize = 12.sp,
+                                            lineHeight = 18.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -434,9 +599,6 @@ private fun WordDetailDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
         }
-    )
+    }
 }

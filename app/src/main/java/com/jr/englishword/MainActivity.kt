@@ -6,17 +6,18 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jr.englishword.data.QuizMode
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.components.EditorialSnackbarHost
 import com.jr.englishword.ui.decodeWordListOrNull
 import com.jr.englishword.ui.encodeWordList
 import com.jr.englishword.ui.screens.HomeScreen
@@ -59,7 +61,7 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(vm: AppViewModel) {
     var screen by rememberSaveable { mutableStateOf("home") }
     var quizMode by rememberSaveable { mutableStateOf(QuizMode.EN_CN.name) }
-    // 错题重练的题源以 JSON 串保存：旋转/进程重建后仍能保持"错题重练"，
+    // 错题重练的题源以 JSON 串保存：旋转/进程重建后仍能保持“错题重练”，
     // 否则 overrideWords 归 null 会静默退化成全词库练习。
     var quizOverrideJson by rememberSaveable { mutableStateOf("") }
     val quizOverride = remember(quizOverrideJson) { decodeWordListOrNull(quizOverrideJson) }
@@ -69,7 +71,7 @@ fun AppRoot(vm: AppViewModel) {
         scope.launch { snackbarHostState.showSnackbar(msg) }
     }
 
-    // 落盘失败必须让用户看到，而不是让"已保存"的假象留在界面上
+    // 落盘失败必须让用户看到，而不是让“已保存”的假象留在界面上
     val saveError by vm.saveError.collectAsState()
     LaunchedEffect(saveError) {
         saveError?.let {
@@ -82,14 +84,20 @@ fun AppRoot(vm: AppViewModel) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { EditorialSnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             AnimatedContent(
                 targetState = screen,
                 transitionSpec = {
-                    (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 14 })
-                        .togetherWith(fadeOut(tween(120)))
+                    val returningHome = targetState == "home" && initialState != "home"
+                    val offsetSign = if (returningHome) -1 else 1
+                    (fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                        slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { (it / 16) * offsetSign })
+                        .togetherWith(
+                            fadeOut(tween(140)) +
+                                slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -(it / 24) * offsetSign }
+                        )
                 },
                 label = "nav"
             ) { s ->

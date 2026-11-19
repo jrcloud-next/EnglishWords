@@ -10,8 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,29 +22,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudUpload
-import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,17 +50,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jr.englishword.data.Parser
-import com.jr.englishword.data.WordEntry
 import com.jr.englishword.ui.AppViewModel
+import com.jr.englishword.ui.components.EditorialTopBar
 import com.jr.englishword.ui.components.GradientIconChip
+import com.jr.englishword.ui.components.InfoPill
+import com.jr.englishword.ui.components.PosBadge
 import com.jr.englishword.ui.components.SegmentedTabs
+import com.jr.englishword.ui.components.pressableScale
+import com.jr.englishword.ui.theme.EditorialSerif
 import com.jr.englishword.ui.theme.LocalAppColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,6 +89,7 @@ fun ImportScreen(
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val appColors = LocalAppColors.current
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -108,7 +109,6 @@ fun ImportScreen(
                 parsed = result.second
                 if (result.second.words.isEmpty()) toast("没有解析出任何单词，请检查文件格式")
             } catch (e: CancellationException) {
-                // 协程取消（例如离开本页）需向上传播，不能当成解析失败
                 throw e
             } catch (e: Exception) {
                 toast("解析失败：${e.message}")
@@ -119,18 +119,7 @@ fun ImportScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        // 顶栏
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "返回", modifier = Modifier.size(18.dp))
-            }
-            Text("导入单词", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-        }
+        EditorialTopBar(title = "导入单词", onBack = onBack)
 
         SegmentedTabs(
             tabs = listOf("文件导入（TXT / DOCX）", "简单导入"),
@@ -138,7 +127,7 @@ fun ImportScreen(
             onSelect = { tab = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         )
 
         AnimatedContent(
@@ -150,7 +139,7 @@ fun ImportScreen(
                 Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp)
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
             ) {
                 if (t == 0) {
                     FileImportContent(
@@ -170,7 +159,7 @@ fun ImportScreen(
                     )
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(18.dp))
                 parsed?.let { p ->
                     PreviewCard(
                         result = p,
@@ -192,23 +181,29 @@ fun ImportScreen(
                     Spacer(Modifier.height(16.dp))
                     Card(
                         shape = MaterialTheme.shapes.large,
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        )
+                        colors = CardDefaults.cardColors(containerColor = appColors.successContainer),
+                        border = BorderStroke(1.dp, appColors.success.copy(alpha = 0.3f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 Icons.Rounded.CheckCircle,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary
+                                tint = appColors.success,
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(10.dp))
-                            Text(msg, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.weight(1f))
+                            Text(
+                                text = msg,
+                                fontSize = 14.sp,
+                                color = appColors.onSuccessContainer,
+                                modifier = Modifier.weight(1f)
+                            )
                             TextButton(onClick = goList) { Text("去单词本") }
                         }
                     }
@@ -221,11 +216,16 @@ fun ImportScreen(
 
 @Composable
 private fun FileImportContent(fileName: String?, loading: Boolean, onPick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
     Card(
         onClick = onPick,
-        shape = MaterialTheme.shapes.large,
+        interactionSource = source,
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressableScale(source),
+        shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-        border = BorderStroke(1.5.dp, Brush.linearGradient(LocalAppColors.current.heroStops)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -237,24 +237,39 @@ private fun FileImportContent(fileName: String?, loading: Boolean, onPick: () ->
             GradientIconChip(
                 icon = Icons.Rounded.CloudUpload,
                 tint = MaterialTheme.colorScheme.primary,
-                size = 70.dp,
-                iconSize = 35.dp,
-                cornerRadius = 23.dp
+                size = 62.dp,
+                iconSize = 30.dp,
+                cornerRadius = 18.dp
             )
             Spacer(Modifier.height(14.dp))
             Text(
-                if (loading) "正在解析文件…" else "点击选择 TXT 或 DOCX 文件",
-                fontWeight = FontWeight.Medium,
+                text = if (loading) "正在解析文件…" else "点击选择 TXT 或 DOCX 文件",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                fileName ?: "支持 “1. hello n. 你好” 格式的词表",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Spacer(Modifier.height(6.dp))
+            if (fileName != null) {
+                InfoPill(
+                    text = fileName,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                ) {
+                    Text(
+                        text = "支持 “1. hello  n.  你好” 等词表格式",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -268,12 +283,18 @@ private fun SimpleImportContent(rawInput: String, onInput: (String) -> Unit, onP
         minLines = 7,
         placeholder = {
             Text(
-                "每行一个单词，格式示例：\n1. hello  n.  你好\n2. complex  adj.  复杂的\nhello  n.  你好（可不带序号）",
+                text = "每行一个单词，格式示例：\n1. hello  n.  你好\n2. complex  adj.  复杂的\nhello  n.  你好（序号与词性均可省略）",
                 fontSize = 13.sp,
+                lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.large,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+        )
     )
     Spacer(Modifier.height(12.dp))
     Button(
@@ -296,14 +317,14 @@ private fun PreviewCard(
 ) {
     Card(
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "解析出 ${result.words.size} 个单词",
+                    text = "解析出 ${result.words.size} 个单词",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -312,59 +333,84 @@ private fun PreviewCard(
                 TextButton(onClick = onClear) { Text("清除") }
             }
             if (result.failedLines.isNotEmpty()) {
-                Text(
-                    "有 ${result.failedLines.size} 行无法解析，例如：${result.failedLines.take(2).joinToString("；")}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.error
-                )
-                Spacer(Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Text(
+                        text = "有 ${result.failedLines.size} 行无法解析，例如：${result.failedLines.take(2).joinToString("；")}",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             result.words.take(8).forEach { w ->
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 5.dp),
+                        .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        w.word,
+                        text = w.word,
+                        fontFamily = EditorialSerif,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     if (w.pos.isNotBlank()) {
                         Spacer(Modifier.width(6.dp))
-                        Text(w.pos, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        PosBadge(pos = w.pos, fontSize = 11.sp)
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        w.meaning,
+                        text = w.meaning,
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
             if (result.words.size > 8) {
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    "…等共 ${result.words.size} 个",
+                    text = "…等共 ${result.words.size} 个单词",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Spacer(Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = replace, onCheckedChange = onReplaceChange)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .toggleable(
+                        value = replace,
+                        role = Role.Checkbox,
+                        onValueChange = onReplaceChange
+                    )
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(checked = replace, onCheckedChange = null)
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    "清空现有单词及其学习记录后导入",
+                    text = "清空现有单词及其学习记录后导入",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onImport,
                 enabled = result.words.isNotEmpty(),

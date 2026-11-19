@@ -51,11 +51,11 @@
 
 ## 界面
 
-- 首页为**渐变主色统计卡**（词库单词 / 已掌握 / AI 状态，数字带滚动动画），下方为四种记忆模式入口、错题本横幅与三个快捷入口
-- 四个记忆模式各有固定的分类识别色（靛蓝 / 青 / 琥珀 / 粉），深色模式下自动换成更亮的色调
-- Android 12 及以上跟随系统壁纸动态取色，界面配色会随你的壁纸变化
-- 答题结束的成绩页用**渐变圆形进度环**展示正确率；答题选项在出现时淡入，答对与答错平滑变色
-- 深色模式跟随系统设置，冷启动不会闪白
+- 采用**温润书卷·现代极简风**：浅色为柔和纸感底色与白纸微边框卡片，深色为深邃墨色背景与暖白文字，冷启动与系统深浅色切换平滑不闪白
+- 英文词头与统计数字采用经典衬线字体排版，词性标记使用斜体衬线徽章（如 *n.*、*adj.*）
+- 首页顶部设有书卷刊头与可直达设置的 AI 状态胶囊，下方为词库概览纸卡（含掌握度进度条）、2×2 记忆模式卡片、错题本入口及三个快捷操作卡
+- 单词本点击词条弹出圆角**底部词典抽屉**，支持查看练习掌握率及请求 AI 更多义项与双语例句
+- 答题页采用抽认卡式题干与平滑状态变色选项，成绩页通过**墨韵圆形进度环**与正误统计呈现练习结果
 
 ## 编译环境
 
@@ -68,7 +68,7 @@
 | Compose BOM | 2024.10.01 |
 | compileSdk | 35 |
 | minSdk（最低支持） | 26（Android 8.0） |
-| versionName / versionCode | 1.2 / 3 |
+| versionName / versionCode | 1.3 / 4 |
 
 本项目的构建基线为 **JDK 17**。[AGP 8.7 最低要求 JDK 17](https://developer.android.com/build/releases/past-releases/agp-8-7-0-release-notes)，[Gradle 8.10.2 支持使用 Java 8–23 运行](https://docs.gradle.org/8.10.2/userguide/compatibility.html)，因此 JDK 26 不兼容当前 Wrapper 构建组合。若机器默认版本较新，请按下文示例显式把 `JAVA_HOME` 指向 17，可用 `"$JAVA_HOME/bin/java" -version` 确认。Gradle 8.10.2 由项目自带的 wrapper 提供，首次执行 `./gradlew` 会自动下载，无需另行安装。
 
@@ -180,16 +180,16 @@ app/src/main/
 │       ├── AppViewModel.kt        # AndroidViewModel，转发 Repository 与 AI 调用
 │       ├── QuizSession.kt         # 答题会话模型 + rememberSaveable Saver（系统状态恢复时保留本轮）
 │       ├── components/
-│       │   ├── CommonUi.kt        # IconChip / GradientIconChip / InfoPill / SectionCardHeader
-│       │   └── Effects.kt         # GradientHero / CircularRingProgress / GradientBar / AnimatedCounter 等动效组件
-│       ├── theme/Theme.kt         # 动态取色（浅/深）+ AppShapes + AppTypography + LocalAppColors
+│       │   ├── CommonUi.kt        # EditorialTopBar / PosBadge / AlphabetSectionHeader / InfoPill 等通用组件
+│       │   └── Effects.kt         # CircularRingProgress / GradientBar / AnimatedCounter / SegmentedTabs 等动效组件
+│       ├── theme/Theme.kt         # 温润书卷浅/深配色 + EditorialSerif + AppShapes + AppTypography + LocalAppColors
 │       └── screens/
-│           ├── HomeScreen.kt      # 首页
-│           ├── ImportScreen.kt    # 导入
-│           ├── QuizScreen.kt      # 答题
-│           ├── ListScreen.kt      # 单词本
-│           ├── WrongBookScreen.kt # 错题本
-│           └── SettingsScreen.kt  # 设置
+│           ├── HomeScreen.kt      # 首页（刊头 + 概览纸卡 + 模式卡 + 错题横幅 + 快捷入口）
+│           ├── ImportScreen.kt    # 导入（纸感内嵌轨道双栏 + 预览与导入）
+│           ├── QuizScreen.kt      # 答题与成绩页（抽认卡题干 + 选项/默写 + 进度环统计）
+│           ├── ListScreen.kt      # 单词本（首字母分组 + 底部词典详情抽屉 ModalBottomSheet）
+│           ├── WrongBookScreen.kt # 错题本（重练面板 + 首字母分组列表）
+│           └── SettingsScreen.kt  # 设置（AI 配置与结构化用量面板 + 学习设置 + 关于）
 └── res/
     ├── values/                    # strings / colors / themes（浅色启动主题）
     └── values-night/              # 深色启动主题与 window_bg，避免冷启动闪白
